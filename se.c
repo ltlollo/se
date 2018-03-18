@@ -30,6 +30,8 @@
 
 #define xensure(cond) xensure_f(errx, cond)
 #define xensure_errno(cond) xensure_f(err, cond)
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
 
 // this will change to a dump and crash like behavior
 #define ensure(cond) xensure(cond)
@@ -42,9 +44,10 @@
 #   define RUNTIME_INSTR 0
 #endif
 
-#define D_GLYPH (1.0f / 256)
-#define H_GLYPH_PX 12
-#define V_GLYPH_PX 16
+#define D_GLYPH     (1.0f / 256)
+#define H_GLYPH_PX  12
+#define V_GLYPH_PX  16
+#define TAB_SIZE    8
 
 extern char *__progname;
 
@@ -746,6 +749,14 @@ load_line(struct line_metadata *lm
             lm->line.intern_line = beg;
             return curr + 1;
         }
+        curr_width++;
+        if (*curr == '\t') {
+            curr_width += curr_width % TAB_SIZE;
+        }
+        if (curr_width >= win_width) {
+            win_lines++;
+            curr_width = 0;
+        }
         if ((*curr & 0x80) == 0) {
             curr += 1;
         } else if ((*curr & 0xe0) == 0xc0) {
@@ -774,11 +785,6 @@ load_line(struct line_metadata *lm
             curr += 4;
         } else {
             goto PARSE_DIRTY;
-        }
-        curr_width++;
-        if (curr_width == win_width) {
-            curr_width = 0;
-            win_lines++;
         }
     } while (1);
 
@@ -956,41 +962,56 @@ init_doc(const char *fname, struct document **doc) {
 }
 
 void
-fill_glyph(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
+fill_glyph_narrow(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
+    float d_glyph = D_GLYPH;
+    float glyph_height = D_GLYPH;
+    float glyph_width = D_GLYPH * 3/4;
+    uint32_t glyph_x = (glyph >> 0) & 0xff;
+    uint32_t glyph_y = (glyph >> 8) & 0xff;
+
+    set_quad_coord(win->glyph_mesh + i * win->width + j
+        , glyph_x * d_glyph + d_glyph * 8/128
+        , glyph_y * d_glyph + d_glyph * 8/128
+        , glyph_width  - d_glyph * 16/128
+        , glyph_height - d_glyph * 16/128
+    );
+}
+
+void
+fill_glyph_wide(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
     float d_glyph = D_GLYPH;
     float glyph_height = D_GLYPH;
     float glyph_width = D_GLYPH;
-    uint32_t glyph_x;
-    uint32_t glyph_y;
+    uint32_t glyph_x = (glyph >> 0) & 0xff;
+    uint32_t glyph_y = (glyph >> 8) & 0xff;
 
-    if (glyph < 0x10000) {
-        glyph_x = (glyph >> 0) & 0xff;
-        glyph_y = (glyph >> 8) & 0xff;
-        glyph_width = d_glyph;
+    set_quad_coord(win->glyph_mesh + i * win->width + j
+        , glyph_x * d_glyph
+        , glyph_y * d_glyph
+        , glyph_width
+        , glyph_height 
+    );
+}
+
+unsigned
+fill_glyph(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
+    if (glyph == '\t') {
+        while (1) {
+            fill_glyph_narrow(i, j, 0x20, win);
+            if (++j % TAB_SIZE == 0 || j == win->width) {
+                return j;
+            }
+        }
+    } else if (glyph < 0x10000) {
         if (glyph > 0x1f && glyph < 0x7f) {
-            glyph_width = D_GLYPH * 3/4;
-            set_quad_coord(win->glyph_mesh + i * win->width + j
-                , glyph_x * d_glyph + d_glyph * 8/128
-                , glyph_y * d_glyph + d_glyph * 8/128
-                , glyph_width  - d_glyph * 16/128
-                , glyph_height - d_glyph * 16/128
-            );
+            fill_glyph_narrow(i, j, glyph, win);
         } else {
-            set_quad_coord(win->glyph_mesh + i * win->width + j
-                , glyph_x * d_glyph
-                , glyph_y * d_glyph
-                , glyph_width
-                , glyph_height 
-            );
+            fill_glyph_wide(i, j, glyph, win);
         }
     } else {
-        set_quad_coord(win->glyph_mesh + i * win->width + j
-            , 0xff * d_glyph
-            , 0xff * d_glyph
-            , glyph_width
-            , glyph_height
-        );
+        fill_glyph_wide(i, j, 0xffff, win);
     }
+    return j + 1;
 }
 
 unsigned
@@ -1007,8 +1028,8 @@ fill_line(unsigned i
         while (line_beg != line_end) {
             glyph = glyph_from_utf8(&line_beg);
             dbg_assert(line_beg <= line_end);
-            fill_glyph(i, j, glyph, win);
-            if (++j == win->width) {
+            j = fill_glyph(i, j, glyph, win);
+            if (j == win->width) {
                 j = 0;
                 i++;
             }
@@ -1018,8 +1039,8 @@ fill_line(unsigned i
         }
     } else {
         while (line_beg != line_end) {
-            fill_glyph(i, j, *line_beg++, win);
-            if (++j == win->width) {
+            j = fill_glyph(i, j, *line_beg++, win);
+            if (j == win->width) {
                 j = 0;
                 i++;
             }
@@ -1039,10 +1060,19 @@ fill_line(unsigned i
 }
 
 size_t
-glyphs_in_utf8_line(uint8_t *curr, uint8_t *end) {
+glyphs_in_utf8_line(uint8_t *curr, uint8_t *end, struct window *win) {
     size_t curr_width = 0;
+    size_t win_lines = 0;
 
     while (curr < end) {
+        curr_width++;
+        if (*curr == '\t') {
+            curr_width += curr_width % TAB_SIZE;
+        }
+        if (curr_width >= win->width) {
+            win_lines++;
+            curr_width = 0;
+        }
         if ((*curr & 0x80) == 0) {
             curr += 1;
         } else if ((*curr & 0xe0) == 0xc0) {
@@ -1054,9 +1084,8 @@ glyphs_in_utf8_line(uint8_t *curr, uint8_t *end) {
         } else {
             dbg_assert(0);
         }
-        curr_width++;
     }
-    return curr_width;
+    return curr_width + win_lines * win->width;
 }
 
 void
@@ -1071,11 +1100,13 @@ recompute_win_lines_metadata(struct line_metadata *lm
     if (is_line_internal(&lm->line, doc)) {
         nglyphs = glyphs_in_utf8_line(lm->line.intern_line
             , lm->line.intern_line + lm->line.size
+            , win
         );
         lm->win_lines = nglyphs / win->width + (nglyphs % win->width != 0);
     } else if (lm->line.extern_line->utf8_dirty == UTF8_CLEAN) {
         nglyphs = glyphs_in_utf8_line(lm->line.extern_line->data
             , lm->line.extern_line->data + lm->line.size
+            , win
         );
         lm->win_lines = nglyphs / win->width + (nglyphs % win->width != 0);
 
@@ -1138,7 +1169,7 @@ fill_screen(struct document **doc, struct window *win) {
         line_beg = lm->line.extern_line->data + res->x_off;
         line_end = lm->line.extern_line->data + lm->line.size;
     }
-    do {
+    while (1) {
         i = fill_line(i, utf8_status, line_beg, line_end, win);
         if (++lm == lm_end || i == win->height) {
             break;
@@ -1152,7 +1183,7 @@ fill_screen(struct document **doc, struct window *win) {
             line_beg = lm->line.extern_line->data;
             line_end = lm->line.extern_line->data + lm->line.size;
         }
-    } while (1);
+    }
     while (i != win->height) {
         for (j = 0; j < win->width; j++) {
             fill_glyph(i, j, 0x20, win);
