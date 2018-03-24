@@ -164,6 +164,8 @@ static struct window {
     void *data;
     unsigned width;
     unsigned height;
+    unsigned scrollback_size;
+    unsigned scrollback_pos;
     struct quad_coord *window_mesh;
     struct quad_coord *glyph_mesh;
     struct quad_color *font_color;
@@ -172,6 +174,23 @@ static struct window {
 enum UTF8_STATUS {
     UTF8_CLEAN = 0,
     UTF8_DIRTY = 1,
+};
+
+enum MV_VERT_DIRECTION {
+    MV_VERT_UP = 0,
+    MV_VERT_DOWN = 1,
+};
+
+enum MV_HORZ_DIRECTION {
+    MV_HORZ_LEFT = 2,
+    MV_HORZ_RIGHT = 3,
+};
+
+enum MV_DIRECTION {
+    MV_UP = MV_VERT_UP,
+    MV_DOWN = MV_VERT_DOWN,
+    MV_LEFT = MV_HORZ_LEFT,
+    MV_RIGHT = MV_HORZ_RIGHT,
 };
 
 struct extern_line {
@@ -253,8 +272,8 @@ load_bitmap(const char *fname, struct bitmap_data *bmp) {
 
     xensure(file.size == bh->size);
     xensure(dh->compression == 0 && dh->bits_per_px == 1);
-    xensure(bmp->data + bmp->padded_bytes_per_row * bmp->height <=
-        file.data + file.size
+    xensure(bmp->data + bmp->padded_bytes_per_row * bmp->height
+        <= file.data + file.size
     );
     switch (dh->size) {
         case 12: case 16: case 40: case 52: case 56: case 64: case 108:
@@ -361,16 +380,20 @@ resize_display_matrix(int win_width_px, int win_height_px) {
         , NULL
         , GL_DYNAMIC_DRAW
     );
-    glBufferSubData(GL_ARRAY_BUFFER, 0
-        , sizeof(struct quad_coord) * size, win.window_mesh
+    glBufferSubData(GL_ARRAY_BUFFER
+        , 0
+        , sizeof(struct quad_coord) * size
+        , win.window_mesh
     );
     glBufferSubData(GL_ARRAY_BUFFER
         , sizeof(struct quad_coord) * size
-        , sizeof(struct quad_coord) * size, win.glyph_mesh
+        , sizeof(struct quad_coord) * size
+        , win.glyph_mesh
     );
     glBufferSubData(GL_ARRAY_BUFFER
         , sizeof(struct quad_coord) * 2 * size
-        , sizeof(struct quad_color) * size, win.font_color
+        , sizeof(struct quad_color) * size
+        , win.font_color
     );
     glVertexAttribPointer(gl_id.pos, 2, GL_FLOAT, GL_FALSE, 0, 0);
     glVertexAttribPointer(gl_id.uv, 2, GL_FLOAT, GL_FALSE, 0
@@ -423,19 +446,42 @@ key_input(unsigned char key, int x, int y) {
     (void)x;
     (void)y;
 
-    if (key == 'q' || key == 27) {
-        exit(0);
-    } else if (key == 'c') {
-        vertex_color = win.font_color->vertex_color;
-        for (i = 0; i < 6 * size; i++) {
-            vertex_color[i].r = 1.0f - vertex_color[i].r;
-            vertex_color[i].g = 1.0f - vertex_color[i].g;
-            vertex_color[i].b = 1.0f - vertex_color[i].b;
-        }
-        glBufferSubData(GL_ARRAY_BUFFER
-            , sizeof(struct quad_coord) * 2 * size
-            , sizeof(struct quad_color) * size, win.font_color
-        );
+    switch (key) {
+        case 'q': case 27:
+            exit(0);
+        case 'c':
+            vertex_color = win.font_color->vertex_color;
+            for (i = 0; i < 6 * size; i++) {
+                vertex_color[i].r = 1.0f - vertex_color[i].r;
+                vertex_color[i].g = 1.0f - vertex_color[i].g;
+                vertex_color[i].b = 1.0f - vertex_color[i].b;
+            }
+            glBufferSubData(GL_ARRAY_BUFFER
+                , sizeof(struct quad_coord) * 2 * size
+                , sizeof(struct quad_color) * size
+                , win.font_color
+            );
+            break;
+        default:
+            return;
+    }
+    glutPostRedisplay();
+}
+
+void
+key_special_input(int key, int x, int y) {
+    (void)x;
+    (void)y;
+
+    switch (key) {
+        case GLUT_KEY_DOWN:
+            move_scrollback(&win, MV_VERT_DOWN, doc);
+            break;
+        case GLUT_KEY_UP:
+            move_scrollback(&win, MV_VERT_UP, doc);
+            break;
+        default:
+            return;
     }
     glutPostRedisplay();
 }
@@ -524,6 +570,7 @@ win_init(int argc, char *argv[]) {
     glutReshapeFunc(resize);
     glutDisplayFunc(render);
     glutKeyboardFunc(key_input);
+    glutSpecialFunc(key_special_input);
     xensure(glewInit() == GLEW_OK);
     glClearColor(0.152, 0.156, 0.13, 1.0);
     return 0;
@@ -557,21 +604,16 @@ set_quad_color(struct quad_color *q, float r, float g, float b) {
 }
 
 void
-gen_display_matrix(struct window *win, unsigned width, unsigned height) {
-    size_t size = width * height;
+fill_window_mesh(struct window *win, unsigned width, unsigned height) {
     float x_beg = -1.0f;
     float y_beg = +1.0f;
     float dx = +2.0f / width;
     float dy = -2.0f / height;
-    float x, y;
-    unsigned i, j;
+    float x;
+    float y;
+    unsigned i;
+    unsigned j;
 
-    xensure(reallocarr(&win->data, 7 * sizeof(GLfloat) * height, 6 * width));
-    win->width = width;
-    win->height = height;
-    win->window_mesh = win->data;
-    win->glyph_mesh = win->window_mesh + size;
-    win->font_color = (void *)(win->glyph_mesh + size);
     y = y_beg;
     for (i = 0; i < height; i++) {
         x = x_beg;
@@ -586,7 +628,28 @@ gen_display_matrix(struct window *win, unsigned width, unsigned height) {
         }
         y += dy;
     }
-    memzero(win->glyph_mesh, size, sizeof(GLfloat) * 5 * 6 );
+}
+
+void
+gen_display_matrix(struct window *win, unsigned width, unsigned height) {
+    size_t scrollback = 2 * height;
+    size_t window_area = width * height;
+    size_t scrollback_area = width * scrollback;
+    size_t window_mesh_sz = sizeof(struct quad_coord) * window_area;
+    size_t glyph_mesh_sz  = sizeof(struct quad_coord) * scrollback_area;
+    size_t font_color_sz  = sizeof(struct quad_color) * scrollback_area;
+    size_t win_mem_sz =  window_mesh_sz + glyph_mesh_sz + font_color_sz;
+
+    xensure(reallocarr(&win->data, win_mem_sz, 1));
+    win->width = width;
+    win->height = height;
+    win->scrollback_size = scrollback;
+    win->scrollback_pos = 0;
+    win->window_mesh = win->data;
+    win->glyph_mesh = win->window_mesh + window_area;
+    win->font_color = (void *)(win->glyph_mesh + scrollback_area);
+    fill_window_mesh(win, width, height);
+    memzero(win->glyph_mesh, 1, glyph_mesh_sz + font_color_sz);
 }
 
 void
@@ -594,10 +657,10 @@ colorful_test(struct window *win) {
     float r, g, b;
     unsigned i, j;
 
-    for (i = 0; i < win->height; i++) {
+    for (i = 0; i < win->scrollback_size; i++) {
         for (j = 0; j < win->width; j++) {
-            r = sin(1 * i * M_PI / win->height);
-            g = sin(2 * i * M_PI / win->height + M_PI);
+            r = sin(1 * i * M_PI / win->scrollback_size);
+            g = sin(2 * i * M_PI / win->scrollback_size + M_PI);
             b = cos(2 * j * M_PI / win->width);
             set_quad_color(win->font_color + i * win->width + j
                 , r * r * 0.95 + 0.15
@@ -829,7 +892,7 @@ load_lines(size_t nlines, struct document **doc) {
     uint8_t *doc_beg = res->file.data;
     uint8_t *doc_end = doc_beg + res->file.size;
     uint8_t *to_load;
-    struct line_metadata *line_end;
+    struct line_metadata *lm_end;
 
     dbg_assert(trampoline->line.size == 0
         && trampoline->line.alloc == 0
@@ -849,8 +912,8 @@ load_lines(size_t nlines, struct document **doc) {
     doc_end = res->file.data + res->file.size;
 
     to_load = trampoline->line.intern_line;
-    line_end = trampoline + nlines;
-    while (trampoline != line_end && to_load != doc_end) {
+    lm_end = trampoline + nlines;
+    while (trampoline != lm_end && to_load != doc_end) {
         to_load = load_line(trampoline, to_load, doc_end, win.width);
         trampoline++;
     }
@@ -911,7 +974,7 @@ resize_document_by(size_t size, struct document **doc) {
     struct document *res = *doc;
     size_t alloc = res->alloc;
     size_t incr_size = res->loaded_size + 1 + size;
-    struct line_metadata *line;
+    struct line_metadata *lm;
 
     dbg_assert(res->alloc > res->loaded_size && size > 0);
 
@@ -925,8 +988,8 @@ resize_document_by(size_t size, struct document **doc) {
         }
         res->alloc = alloc;
     }
-    line = res->lines + res->loaded_size + 1;
-    memzero(line, size, sizeof(*line));
+    lm = res->lines + res->loaded_size + 1;
+    memzero(lm, size, sizeof(*lm));
 
     dbg_assert(res->alloc > res->loaded_size);
     return 0;
@@ -1033,7 +1096,7 @@ fill_line(unsigned i
                 j = 0;
                 i++;
             }
-            if (i == win->height) {
+            if (i == win->scrollback_size) {
                 return i;
             }
         }
@@ -1044,7 +1107,7 @@ fill_line(unsigned i
                 j = 0;
                 i++;
             }
-            if (i == win->height) {
+            if (i == win->scrollback_size) {
                 return i;
             }
         }
@@ -1109,12 +1172,13 @@ recompute_win_lines_metadata(struct line_metadata *lm
             , win
         );
         lm->win_lines = nglyphs / win->width + (nglyphs % win->width != 0);
-
     } else {
         nglyphs = lm->line.size;
         lm->win_lines = nglyphs / win->width + (nglyphs % win->width != 0);
     }
-    dbg_assert(lm->win_lines != 0);
+    if (lm->win_lines == 0) {
+        lm->win_lines = 1;
+    }
 }
 
 void
@@ -1130,13 +1194,13 @@ fill_screen(struct document **doc, struct window *win) {
     uint8_t *line_beg;
     uint8_t *line_end;
 
-    if (win->height * win->width == 0) {
+    if (win->scrollback_size * win->width == 0) {
         return;
     }
     if (lm->win_lines == 0 && lm != lm_end) {
         recompute_win_lines_metadata(lm, *doc, win);
     }
-    ensure(lm->win_lines >= res->y_window_line_off);
+    ensure(lm->win_lines > res->y_window_line_off || lm->win_lines == 0);
     win_lines = lm->win_lines - res->y_window_line_off;
 
     ensure(lm <= lm_end);
@@ -1144,17 +1208,17 @@ fill_screen(struct document **doc, struct window *win) {
     if (!is_fully_loaded(res)) {
         lm_curr = lm + 1;
         while (lm_curr < lm_end) {
-            if (win_lines >= win->height) {
+            if (win_lines >= win->scrollback_size) {
                 break;
             }
-            if (lm->win_lines == 0) {
-                recompute_win_lines_metadata(lm, *doc, win);
+            if (lm_curr->win_lines == 0) {
+                recompute_win_lines_metadata(lm_curr, *doc, win);
             }
             win_lines += lm_curr->win_lines;    
             lm_curr++;
         }
-        if (win_lines < win->height) {
-            ensure(load_lines(win->height - win_lines, doc) == 0);
+        if (win_lines < win->scrollback_size) {
+            ensure(load_lines(win->scrollback_size - win_lines, doc) == 0);
             res = *doc;
             lm = res->lines + res->y_line_off;
             lm_end = res->lines + res->loaded_size;
@@ -1171,7 +1235,7 @@ fill_screen(struct document **doc, struct window *win) {
     }
     while (1) {
         i = fill_line(i, utf8_status, line_beg, line_end, win);
-        if (++lm == lm_end || i == win->height) {
+        if (++lm == lm_end || i == win->scrollback_size) {
             break;
         }
         if (is_line_internal(&lm->line, res)) {
@@ -1184,7 +1248,7 @@ fill_screen(struct document **doc, struct window *win) {
             line_end = lm->line.extern_line->data + lm->line.size;
         }
     }
-    while (i != win->height) {
+    while (i != win->scrollback_size) {
         for (j = 0; j < win->width; j++) {
             fill_glyph(i, j, 0x20, win);
         }
@@ -1192,9 +1256,64 @@ fill_screen(struct document **doc, struct window *win) {
     }
 }
 
+void
+move_scrollback(struct window *win
+    , enum MV_VERT_DIRECTION vdir
+    , struct document *doc
+    ) {
+    struct line_metadata *lm = doc->lines + doc->y_line_off;
+    struct line_metadata *lm_end = doc->lines + doc->loaded_size;
+    struct line_metadata *lm_curr;
+    size_t size = win->height * win->width;
+    size_t win_lines;
+
+    if (vdir == MV_VERT_UP) {
+        if (win->scrollback_pos > 0) {
+            win->scrollback_pos--;
+        } else if (doc->y_line_off + doc->y_window_line_off == 0) {
+            return;
+        } else {
+        
+        }
+    } else if (vdir == MV_VERT_DOWN) {
+        ensure(lm->win_lines > doc->y_window_line_off);
+        win_lines = lm->win_lines - doc->y_window_line_off;
+        lm_curr = lm + 1;
+        while (lm_curr < lm_end) {
+            if (win_lines >= win->height) {
+                break;
+            }
+            if (lm_curr->win_lines == 0) {
+                recompute_win_lines_metadata(lm_curr, doc, win);
+            }
+            win_lines += lm_curr->win_lines;    
+            lm_curr++;
+        }
+        if (win_lines < win->height) {
+            return;
+        }
+        dbg_assert(win->scrollback_size > win->scrollback_pos);
+        if (win->scrollback_size - (win->scrollback_pos + 1) >= win->height) {
+            win->scrollback_pos++;
+        } else {
+
+        }
+    }
+    glBufferSubData(GL_ARRAY_BUFFER
+        , sizeof(struct quad_coord) * size
+        , sizeof(struct quad_coord) * size
+        , win->glyph_mesh + win->scrollback_pos * win->width
+    );
+    glBufferSubData(GL_ARRAY_BUFFER
+        , sizeof(struct quad_coord) * 2 * size
+        , sizeof(struct quad_color) * size
+        , win->font_color + win->scrollback_pos * win->width
+    );
+}
+
 int
 main(int argc, char *argv[]) {
-    char *fname = "test";
+    char *fname = "se.c";
 
     if (argc - 1 > 0) {
         fname = argv[1];
