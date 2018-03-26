@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 
+
 #define __pack __attribute__((packed))
 
 #define xensure_f(f, cond)\
@@ -28,28 +29,32 @@
         }\
     } while (0)
 
-#define xensure(cond) xensure_f(errx, cond)
-#define xensure_errno(cond) xensure_f(err, cond)
-#define min(a, b) ((a) < (b) ? (a) : (b))
-#define max(a, b) ((a) > (b) ? (a) : (b))
+#define xensure(cond)         xensure_f(errx, cond)
+#define xensure_errno(cond)   xensure_f(err, cond)
+#define min(a, b)             ((a) < (b) ? (a) : (b))
+#define max(a, b)             ((a) > (b) ? (a) : (b))
+#define ptr_mask(p, m)        ((void *)(((uintptr_t)(p)) & (m)))
+#define ptr_align_bound(p, b) (ptr_mask(p, ~((b) - 1)))
+#define ptr_align_bits(p, b)  (ptr_align_bound(p, 1 << (b)))
 
 // this will change to a dump and crash like behavior
 #define ensure(cond) xensure(cond)
 
 #ifndef NDEBUG
 #   define dbg_assert(cond) ensure(cond)
-#   define RUNTIME_INSTR 1
+#   define RUNTIME_INSTR    (1)
 #else
-#   define dbg_assert(cond)
-#   define RUNTIME_INSTR 0
+#   define dbg_assert(cond) ((void)(cond))
+#   define RUNTIME_INSTR    (0)
 #endif
 
 #define D_GLYPH     (1.0f / 256)
-#define H_GLYPH_PX  12
-#define V_GLYPH_PX  16
-#define TAB_SIZE    8
+#define H_GLYPH_PX  (12)
+#define V_GLYPH_PX  (16)
+#define TAB_SIZE    (8)
 
 extern char *__progname;
+static uintptr_t page_mask;
 
 static void *
 reallocarr(void **arr, size_t nmemb, size_t size) {
@@ -250,6 +255,17 @@ load_file(const char *fname, struct mmap_file *file) {
     return 0;
 }
 
+void
+unload_file(struct mmap_file *file) {
+    void *ptr = ptr_mask(file->data, page_mask);
+    int res = munmap(ptr, file->size);
+
+    file->size = 0;
+    file->data = NULL;
+
+    dbg_assert(res == 0);
+}
+
 int
 load_bitmap(const char *fname, struct bitmap_data *bmp) {
     struct mmap_file file;
@@ -298,6 +314,7 @@ convert_bmp_window_to_rfp(struct bitmap_data *bmp
     char *bmpdata = bmp->data;
     size_t line = bmp->padded_bytes_per_row;
     struct rfp_file *rfp;
+    struct mmap_file file;
     void *end;
     size_t i, j, w;
     size_t r_i;
@@ -325,21 +342,21 @@ convert_bmp_window_to_rfp(struct bitmap_data *bmp
         }
     }
     xensure_errno(fwrite(rfp, 1, size, fout) == size);
-    munmap(rfp, size);
+    file.data = rfp;
+    file.size = size;
+    unload_file(&file);
     fclose(fout);
     return 0;
 }
 
 struct rfp_file *
-load_rfp_file(const char *fname) {
-    struct mmap_file file;
+load_rfp_file(struct mmap_file *file) {
     struct rfp_file *rfp;
-    xensure(load_file(fname, &file) == 0);
 
-    rfp = file.data;
-    xensure(file.size > sizeof(struct rfp_file));
-    xensure(file.size == rfp->size);
-    xensure(file.size == 0x1000000 + sizeof(struct rfp_file));
+    rfp = file->data;
+    xensure(file->size > sizeof(struct rfp_file));
+    xensure(file->size == rfp->size);
+    xensure(file->size == 0x1000000 + sizeof(struct rfp_file));
     xensure(memcmp(&rfp->header, "RFP", 4) == 0);
 
     return rfp;
@@ -673,10 +690,13 @@ colorful_test(struct window *win) {
 
 int
 gl_pipeline_init() {
-    struct rfp_file *rfp = load_rfp_file("unifont.rfp");
     unsigned win_width_px = 0;
     unsigned win_height_px = 0;
+    struct mmap_file file;
+    struct rfp_file *rfp;
 
+    xensure(load_file("unifont.rfp", &file) == 0);
+    rfp = load_rfp_file(&file);
     gl_id.prog = gl_compile_program(vs_src, fs_src);
     glGenVertexArrays(1, &gl_id.vao);
     glBindVertexArray(gl_id.vao);
@@ -701,6 +721,8 @@ gl_pipeline_init() {
         , GL_UNSIGNED_BYTE
         , rfp->data
     );
+    unload_file(&file);
+
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -1002,7 +1024,7 @@ init_doc(const char *fname, struct document **doc) {
     struct line_metadata *fst_line;
     size_t alloc;
 
-    dbg_assert(load_file(fname, &file) == 0);
+    ensure(load_file(fname, &file) == 0);
 
     alloc = file.size / 32 + 1;
     res = reallocflexarr((void **)doc, sizeof(struct document), alloc
@@ -1314,6 +1336,10 @@ move_scrollback(struct window *win
 int
 main(int argc, char *argv[]) {
     char *fname = "se.c";
+    long page_size = sysconf(_SC_PAGE_SIZE);
+
+    dbg_assert(page_size != -1);
+    page_mask = ~(page_size - 1);
 
     if (argc - 1 > 0) {
         fname = argv[1];
