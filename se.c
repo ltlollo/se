@@ -5,48 +5,14 @@
 #include <GL/gl.h>
 #include <GL/freeglut.h>
 
-#include <err.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
-#include <errno.h>
 
-#include <sys/mman.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <fcntl.h>
-#include <unistd.h>
-
-
-#define __pack __attribute__((packed))
-
-#define xensure_f(f, cond)\
-    do {\
-        if (__builtin_expect((cond) == 0, 0)) {\
-            f(1, "Invariant violated %s:%d\n  %s",__FILE__, __LINE__, #cond);\
-        }\
-    } while (0)
-
-#define xensure(cond)         xensure_f(errx, cond)
-#define xensure_errno(cond)   xensure_f(err, cond)
-#define min(a, b)             ((a) < (b) ? (a) : (b))
-#define max(a, b)             ((a) > (b) ? (a) : (b))
-#define ptr_mask(p, m)        ((void *)(((uintptr_t)(p)) & (m)))
-#define ptr_align_bound(p, b) (ptr_mask(p, ~((b) - 1)))
-#define ptr_align_bits(p, b)  (ptr_align_bound(p, 1 << (b)))
-
-// this will change to a dump and crash like behavior
-#define ensure(cond) xensure(cond)
-
-#ifndef NDEBUG
-#   define dbg_assert(cond) ensure(cond)
-#   define RUNTIME_INSTR    (1)
-#else
-#   define dbg_assert(cond) ((void)(cond))
-#   define RUNTIME_INSTR    (0)
-#endif
+#include "util.h"
+#include "fio.h"
 
 #define D_GLYPH     (1.0f / 256)
 #define H_GLYPH_PX  (12)
@@ -54,86 +20,6 @@
 #define TAB_SIZE    (8)
 
 extern char *__progname;
-static uintptr_t page_mask;
-
-static void *
-reallocarr(void **arr, size_t nmemb, size_t size) {
-    void *res;
-    if (nmemb > SIZE_MAX / size) {
-        errno = ENOMEM;
-        res = NULL;
-    }
-    res = realloc(*arr, nmemb * size);
-    if (res != NULL) {
-        *arr = res;
-    }
-    return res;
-}
-
-static void *
-reallocflexarr(void **arr, size_t header, size_t nmemb, size_t size) {
-    size_t header_nmemb = header / size + header % size;
-    void *res;
-
-    if (nmemb + header_nmemb > SIZE_MAX / size) {
-        errno = ENOMEM;
-        res = NULL;
-    }
-    res = realloc(*arr, nmemb * size + header);
-    if (res != NULL) {
-        *arr = res;
-    }
-    return res;
-}
-
-static void
-memzero(void *arr, size_t nmemb, size_t size) {
-    memset(arr, 0, nmemb * size);
-}
-
-struct mmap_file {
-    size_t size;
-    void *data;
-};
-
-struct bmp_header {
-    uint16_t signature;
-    uint32_t size;
-    uint32_t reserved;
-    uint32_t offset;
-} __pack;
-_Static_assert(sizeof(struct bmp_header) == 14, "unsupported architecture");
-
-struct dib_header {
-    uint32_t size;
-    uint32_t width;
-    uint32_t height;
-    struct {
-        uint16_t planes;
-        uint16_t bits_per_px;
-    } __pack;
-    uint32_t compression;
-    uint32_t image_size;
-    uint32_t x_px_per_m;
-    uint32_t y_px_per_m;
-    uint32_t colors_in_colortable;
-    char incomplete[];
-} __pack;
-
-struct bitmap_data {
-    uint32_t width;
-       uint32_t padded_bytes_per_row;
-       uint32_t height;
-    void *data;
-    struct mmap_file handle;
-};
-
-struct rfp_file {
-    uint32_t header;
-    uint32_t size;
-    uint8_t data[];
-} __pack;
-_Static_assert(sizeof(struct rfp_file) == 8, "unsipported architecture");
 
 static struct gl_data {
     GLuint vao;
@@ -235,132 +121,6 @@ static struct document {
 } *doc;
 
 #include "se.h"
-
-int
-load_file(const char *fname, struct mmap_file *file) {
-    int fd = open(fname, O_RDONLY);
-    off_t length;
-
-    xensure_errno(fd != -1);
-
-    length = lseek(fd, 0, SEEK_END);
-    xensure_errno(length != -1);
-    xensure_errno(lseek(fd, 0, SEEK_SET) != -1);
-
-    file->size = length;
-    file->data = mmap(NULL, file->size, PROT_READ, MAP_PRIVATE, fd, 0);
-    xensure_errno(file->data != MAP_FAILED);
-
-    close(fd);
-    return 0;
-}
-
-void
-unload_file(struct mmap_file *file) {
-    void *ptr = ptr_mask(file->data, page_mask);
-    int res = munmap(ptr, file->size);
-
-    file->size = 0;
-    file->data = NULL;
-
-    dbg_assert(res == 0);
-}
-
-int
-load_bitmap(const char *fname, struct bitmap_data *bmp) {
-    struct mmap_file file;
-    struct bmp_header *bh;
-    struct dib_header *dh;
-    uint32_t bytes_per_row;
-
-    xensure(load_file(fname, &file) == 0);
-    
-    bh = file.data;
-    xensure(memcmp(&bh->signature, "BM", 2) == 0);
-    dh = file.data + sizeof(*bh);
-
-    bmp->width = dh->width;
-    bytes_per_row = dh->width * dh->bits_per_px;
-    bytes_per_row = (bytes_per_row / 8 + bytes_per_row % 8);
-    bmp->padded_bytes_per_row = bytes_per_row + bytes_per_row % 4;
-    bmp->height = dh->height;
-    bmp->data = file.data + bh->offset;
-
-    xensure(file.size == bh->size);
-    xensure(dh->compression == 0 && dh->bits_per_px == 1);
-    xensure(bmp->data + bmp->padded_bytes_per_row * bmp->height
-        <= file.data + file.size
-    );
-    switch (dh->size) {
-        case 12: case 16: case 40: case 52: case 56: case 64: case 108:
-        case 124: break;
-        default: errx(1, "malformed bmp file");
-    }
-    xensure(bmp->data >= file.data + dh->size);
-    xensure(dh->planes == 1 && dh->colors_in_colortable == 2);
-
-    memcpy(&bmp->handle, &file, sizeof(file));
-    return 0;
-}
-
-int
-convert_bmp_window_to_rfp(struct bitmap_data *bmp
-    , unsigned offx
-    , unsigned offy
-    , const char *fname
-    ) {
-    FILE *fout = fopen(fname, "w");
-    uint32_t size = 0x1000000 + sizeof(struct rfp_file);
-    char *bmpdata = bmp->data;
-    size_t line = bmp->padded_bytes_per_row;
-    struct rfp_file *rfp;
-    struct mmap_file file;
-    void *end;
-    size_t i, j, w;
-    size_t r_i;
-
-    xensure_errno(fout != NULL);
-    end = bmp->data + line * (offy + 0x1000);
-    xensure(end <= bmp->handle.data + bmp->handle.size);
-
-    rfp = mmap(NULL, size, PROT_WRITE | PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS
-        , -1
-        , 0
-    );
-    xensure_errno(rfp != MAP_FAILED);
-
-    memcpy(&rfp->header, "RFP", 4);
-    memcpy(&rfp->size, &size, sizeof(size));
-
-    // NOTE : slow convert procedure, but it's just an offline precomputation
-    for (i = offx, w = 0; i < 0x1000 + offx; i++) {
-        r_i = bmp->height - 1 - i;
-        for (j = offy; j < 0x1000 + offy; j++) {
-            rfp->data[w++] =
-                ((bmpdata[r_i * line + j / 8] >> (7 - ( j % 8))) & 1)
-                ? 0xff : 0;
-        }
-    }
-    xensure_errno(fwrite(rfp, 1, size, fout) == size);
-    file.data = rfp;
-    file.size = size;
-    unload_file(&file);
-    fclose(fout);
-    return 0;
-}
-
-struct rfp_file *
-load_rfp_file(struct mmap_file *file) {
-    struct rfp_file *rfp;
-
-    rfp = file->data;
-    xensure(file->size > sizeof(struct rfp_file));
-    xensure(file->size == rfp->size);
-    xensure(file->size == 0x1000000 + sizeof(struct rfp_file));
-    xensure(memcmp(&rfp->header, "RFP", 4) == 0);
-
-    return rfp;
-}
 
 void
 render(void) {
@@ -1336,10 +1096,6 @@ move_scrollback(struct window *win
 int
 main(int argc, char *argv[]) {
     char *fname = "se.c";
-    long page_size = sysconf(_SC_PAGE_SIZE);
-
-    dbg_assert(page_size != -1);
-    page_mask = ~(page_size - 1);
 
     if (argc - 1 > 0) {
         fname = argv[1];
