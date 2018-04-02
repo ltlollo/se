@@ -1187,6 +1187,9 @@ move_scrollback_down(struct window *win, struct document **docp) {
     }
     win->scrollback_pos = 0;
     for (i = 0; i < win->height; i++) {
+        if (lm->win_lines == 0) {
+            recompute_win_lines_metadata(lm, doc, win);
+        }
         if (++doc->y_window_line_off == lm->win_lines) {
             doc->y_window_line_off = 0;
             doc->y_line_off++;
