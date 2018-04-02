@@ -85,7 +85,7 @@ enum MV_DIRECTION {
 };
 
 struct extern_line {
-    uint8_t utf8_dirty;
+    uint8_t utf8_status;
     uint8_t data[];
 };
 
@@ -252,10 +252,16 @@ key_special_input(int key, int x, int y) {
 
     switch (key) {
         case GLUT_KEY_DOWN:
-            move_scrollback(&win, MV_VERT_DOWN, doc);
+            move_scrollback(&win, MV_VERT_DOWN, 1, &doc);
             break;
         case GLUT_KEY_UP:
-            move_scrollback(&win, MV_VERT_UP, doc);
+            move_scrollback(&win, MV_VERT_UP, 1, &doc);
+            break;
+        case GLUT_KEY_PAGE_DOWN:
+            move_scrollback(&win, MV_VERT_DOWN, win.height, &doc);
+            break;
+        case GLUT_KEY_PAGE_UP:
+            move_scrollback(&win, MV_VERT_UP, win.height, &doc);
             break;
         default:
             return;
@@ -555,12 +561,12 @@ void
 init_extern_line(struct line *line
     , uint8_t *str
     , size_t size
-    , enum UTF8_STATUS utf8_dirty
+    , enum UTF8_STATUS utf8_status
     , struct document *doc
     ) {
     ensure(line->ptr == NULL);
     resize_extern_line(line, size, doc);
-    line->extern_line->utf8_dirty = utf8_dirty;
+    line->extern_line->utf8_status = utf8_status;
     memcpy(line->extern_line->data, str, size);
 }
 
@@ -666,6 +672,14 @@ is_line_internal(struct line *line, struct document *doc) {
     }
     return 0;
 } 
+
+int
+is_line_utf8(struct line *line, struct document *doc) {
+    if (is_line_internal(line, doc)) {
+        return 1;    
+    }
+    return line->extern_line->utf8_status == UTF8_CLEAN;
+}
 
 int
 load_lines(size_t nlines, struct document **doc) {
@@ -904,6 +918,22 @@ fill_line(unsigned i
     return i;
 }
 
+uint8_t *
+next_utf8_char(uint8_t *curr) {
+    if ((*curr & 0x80) == 0) {
+        curr += 1;
+    } else if ((*curr & 0xe0) == 0xc0) {
+        curr += 2;
+    } else if ((*curr & 0xf0) == 0xe0) {
+        curr += 3;
+    } else if ((*curr & 0xf8) == 0xf0) {
+        curr += 4;
+    } else {
+        dbg_assert(0);
+    }
+    return curr;
+}
+
 size_t
 glyphs_in_utf8_line(uint8_t *curr, uint8_t *end, struct window *win) {
     size_t curr_width = 0;
@@ -918,19 +948,57 @@ glyphs_in_utf8_line(uint8_t *curr, uint8_t *end, struct window *win) {
             win_lines++;
             curr_width = 0;
         }
-        if ((*curr & 0x80) == 0) {
-            curr += 1;
-        } else if ((*curr & 0xe0) == 0xc0) {
-            curr += 2;
-        } else if ((*curr & 0xf0) == 0xe0) {
-            curr += 3;
-        } else if ((*curr & 0xf8) == 0xf0) {
-            curr += 4;
-        } else {
-            dbg_assert(0);
-        }
+        curr = next_utf8_char(curr);
     }
     return curr_width + win_lines * win->width;
+}
+
+uint8_t *
+offsetof_utf8_width(uint8_t *curr
+    , uint8_t *end
+    , struct window *win
+    , size_t width
+    ) {
+    size_t curr_width = 0;
+    size_t win_lines = 0;
+    size_t i = 0;
+
+    while (curr < end && i < width) {
+        curr_width++;
+        i++;
+        if (*curr == '\t') {
+            curr_width += curr_width % TAB_SIZE;
+        }
+        if (curr_width >= win->width) {
+            win_lines++;
+            i -= curr_width % win->width;
+            curr_width = 0;
+        }
+        curr = next_utf8_char(curr);
+    }
+    return curr;
+}
+
+uint8_t *
+offsetof_width(struct line_metadata *lm
+    , struct window *win
+    , struct document *doc
+    , size_t width) {
+    if (is_line_internal(&lm->line, doc)) {
+        return offsetof_utf8_width(lm->line.intern_line
+            , lm->line.intern_line + lm->line.size
+            , win
+            , width
+        );
+    }
+    else if (lm->line.extern_line->utf8_status == UTF8_CLEAN) {
+        return offsetof_utf8_width(lm->line.extern_line->data
+            , lm->line.extern_line->data + lm->line.size
+            , win
+            , width
+        );
+    }
+    return lm->line.extern_line->data + width;
 }
 
 void
@@ -948,7 +1016,7 @@ recompute_win_lines_metadata(struct line_metadata *lm
             , win
         );
         lm->win_lines = nglyphs / win->width + (nglyphs % win->width != 0);
-    } else if (lm->line.extern_line->utf8_dirty == UTF8_CLEAN) {
+    } else if (lm->line.extern_line->utf8_status == UTF8_CLEAN) {
         nglyphs = glyphs_in_utf8_line(lm->line.extern_line->data
             , lm->line.extern_line->data + lm->line.size
             , win
@@ -1011,9 +1079,12 @@ fill_screen(struct document **doc, struct window *win) {
         line_beg = lm->line.intern_line + res->x_off;
         line_end = lm->line.intern_line + lm->line.size;
     } else {
-        utf8_status = lm->line.extern_line->utf8_dirty; 
+        utf8_status = lm->line.extern_line->utf8_status; 
         line_beg = lm->line.extern_line->data + res->x_off;
         line_end = lm->line.extern_line->data + lm->line.size;
+    }
+    if (lm == lm_end) {
+        goto CLEAR_SCREEN;
     }
     while (1) {
         i = fill_line(i, utf8_status, line_beg, line_end, win);
@@ -1025,11 +1096,12 @@ fill_screen(struct document **doc, struct window *win) {
             line_beg = lm->line.intern_line;
             line_end = lm->line.intern_line + lm->line.size;
         } else {
-            utf8_status = lm->line.extern_line->utf8_dirty; 
+            utf8_status = lm->line.extern_line->utf8_status; 
             line_beg = lm->line.extern_line->data;
             line_end = lm->line.extern_line->data + lm->line.size;
         }
     }
+CLEAR_SCREEN:
     while (i != win->scrollback_size) {
         for (j = 0; j < win->width; j++) {
             fill_glyph(i, j, 0x20, win);
@@ -1038,48 +1110,121 @@ fill_screen(struct document **doc, struct window *win) {
     }
 }
 
+uint8_t *
+begin_line_metadata(struct line_metadata *lm, struct document *doc) {
+    if (is_line_internal(&lm->line, doc)) {
+        return  lm->line.intern_line;
+    }
+    return lm->line.extern_line->data;
+}
+
+uint8_t *
+end_line_metadata(struct line_metadata *lm, struct document *doc) {
+    return begin_line_metadata(lm, doc) + lm->line.size;
+}
+
+void
+move_scrollback_up(struct window *win, struct document **docp) {
+    struct document *doc = *docp;
+    struct line_metadata *lm = doc->lines + doc->y_line_off;
+    uint8_t *x_off_winlines;
+
+    if (win->scrollback_pos > 0) {
+        win->scrollback_pos--;
+        return;
+    }
+    if (doc->y_line_off == 0 && doc->y_window_line_off == 0) {
+        return;
+    }
+    win->scrollback_pos = win->scrollback_size;
+    while (win->scrollback_pos != win->height) {
+        win->scrollback_pos--;
+        if (doc->y_window_line_off > 0) {
+            doc->y_window_line_off--;
+        } else {
+            dbg_assert(doc->y_line_off > 0);
+            doc->y_line_off--;
+            lm--;
+            if (lm->win_lines == 0) {
+                recompute_win_lines_metadata(lm, doc, win);
+            }
+            doc->y_window_line_off = lm->win_lines - 1;
+        }
+        if (doc->y_line_off == 0 && doc->y_window_line_off == 0) {
+            break;
+        }
+    }
+    x_off_winlines = offsetof_width(lm, win, doc
+        , doc->y_window_line_off * win->width
+    );
+    doc->x_off = x_off_winlines - begin_line_metadata(lm, doc);
+    
+    win->scrollback_pos--;
+    fill_screen(docp, win);
+}
+
+void
+move_scrollback_down(struct window *win, struct document **docp) {
+    struct document *doc = *docp;
+    struct line_metadata *lm = doc->lines + doc->y_line_off;
+    struct line_metadata *lm_end = doc->lines + doc->loaded_size;
+    uint8_t *x_off_winlines;
+    unsigned i;
+
+    if (win->scrollback_pos + win->height < win->scrollback_size) {
+        win->scrollback_pos++;
+        return;
+    }
+    if (!is_fully_loaded(doc) && lm + win->height > lm_end) {
+        load_lines(win->height, docp);
+        doc = *docp;
+        lm = doc->lines + doc->y_line_off;
+        lm_end = doc->lines + doc->loaded_size;
+    }
+    if (lm == lm_end) {
+        ensure(doc->y_window_line_off == 0);
+        return;
+    }
+    win->scrollback_pos = 0;
+    for (i = 0; i < win->height; i++) {
+        if (++doc->y_window_line_off == lm->win_lines) {
+            doc->y_window_line_off = 0;
+            doc->y_line_off++;
+            lm++;
+        }
+        if (lm == lm_end) {
+            break;
+        }
+    }
+    x_off_winlines = offsetof_width(lm, win, doc
+        , doc->y_window_line_off * win->width
+    );
+    doc->x_off = x_off_winlines - begin_line_metadata(lm, doc);
+
+    win->scrollback_pos++;
+    fill_screen(docp, win);
+}
+
+
 void
 move_scrollback(struct window *win
     , enum MV_VERT_DIRECTION vdir
-    , struct document *doc
+    , size_t times
+    , struct document **docp
     ) {
-    struct line_metadata *lm = doc->lines + doc->y_line_off;
-    struct line_metadata *lm_end = doc->lines + doc->loaded_size;
-    struct line_metadata *lm_curr;
     size_t size = win->height * win->width;
-    size_t win_lines;
+    size_t i;
 
     if (vdir == MV_VERT_UP) {
-        if (win->scrollback_pos > 0) {
-            win->scrollback_pos--;
-        } else if (doc->y_line_off + doc->y_window_line_off == 0) {
-            return;
-        } else {
-        
+        for (i = 0; i < times; i++) {
+            move_scrollback_up(win, docp);
         }
     } else if (vdir == MV_VERT_DOWN) {
-        ensure(lm->win_lines > doc->y_window_line_off);
-        win_lines = lm->win_lines - doc->y_window_line_off;
-        lm_curr = lm + 1;
-        while (lm_curr < lm_end) {
-            if (win_lines >= win->height) {
-                break;
-            }
-            if (lm_curr->win_lines == 0) {
-                recompute_win_lines_metadata(lm_curr, doc, win);
-            }
-            win_lines += lm_curr->win_lines;    
-            lm_curr++;
+        for (i = 0; i < times; i++) {
+            move_scrollback_down(win, docp);
         }
-        if (win_lines < win->height) {
-            return;
-        }
-        dbg_assert(win->scrollback_size > win->scrollback_pos);
-        if (win->scrollback_size - (win->scrollback_pos + 1) >= win->height) {
-            win->scrollback_pos++;
-        } else {
-
-        }
+    } else {
+        dbg_assert(0);
     }
     glBufferSubData(GL_ARRAY_BUFFER
         , sizeof(struct quad_coord) * size

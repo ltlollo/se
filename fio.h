@@ -49,7 +49,7 @@ struct rfp_file {
     uint32_t size;
     uint8_t data[];
 } __pack;
-_Static_assert(sizeof(struct rfp_file) == 8, "unsipported architecture");
+_Static_assert(sizeof(struct rfp_file) == 8, "unsupported architecture");
 
 int load_file(const char *, struct mmap_file *);
 void unload_file(struct mmap_file *);
