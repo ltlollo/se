@@ -483,7 +483,7 @@ gl_pipeline_init() {
     glEnable(GL_TEXTURE_2D);
     glGenTextures(1, &gl_id.tbo);
     glBindTexture(GL_TEXTURE_2D, gl_id.tbo);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, 0x1000, 0x1000, 0, GL_RED
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, 0x1200, 0x1200, 0, GL_RED
         , GL_UNSIGNED_BYTE
         , rfp->data
     );
@@ -824,15 +824,15 @@ void
 fill_glyph_narrow(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
     float d_glyph = D_GLYPH;
     float glyph_height = D_GLYPH;
-    float glyph_width = D_GLYPH * 3/4;
+    float glyph_width = D_GLYPH * 2/3;
     uint32_t glyph_x = (glyph >> 0) & 0xff;
     uint32_t glyph_y = (glyph >> 8) & 0xff;
 
     set_quad_coord(win->glyph_mesh + i * win->width + j
-        , glyph_x * d_glyph + d_glyph * 8/128
-        , glyph_y * d_glyph + d_glyph * 8/128
-        , glyph_width  - d_glyph * 16/128
-        , glyph_height - d_glyph * 16/128
+        , glyph_x * d_glyph + d_glyph * 1/18
+        , glyph_y * d_glyph + d_glyph * 1/18
+        , glyph_width  - d_glyph * 1/18
+        , glyph_height - d_glyph * 1/18
     );
 }
 

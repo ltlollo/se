@@ -88,13 +88,13 @@ convert_bmp_window_to_rfp(struct bitmap_data *bmp
     , const char *fname
     ) {
     FILE *fout = fopen(fname, "w");
-    uint32_t size = 0x1000000 + sizeof(struct rfp_file);
+    uint32_t size = 0x1440000 + sizeof(struct rfp_file);
     char *bmpdata = bmp->data;
     size_t line = bmp->padded_bytes_per_row;
     struct rfp_file *rfp;
     struct mmap_file file;
     void *end;
-    size_t i, j, w;
+    size_t i, j, n, m, o, p;
     size_t r_i;
 
     xensure_errno(fout != NULL);
@@ -109,15 +109,23 @@ convert_bmp_window_to_rfp(struct bitmap_data *bmp
 
     memcpy(&rfp->header, "RFP", 4);
     memcpy(&rfp->size, &size, sizeof(size));
+    memset(rfp->data, 0xff, 0x1440000);
 
     // NOTE : slow convert procedure, but it's just an offline precomputation
-    for (i = offy, w = 0; i < 0x1000 + offy; i++) {
+    for (i = offy, n = 1, o = 1; i < 0x1000 + offy; i++, n++, o++) {
         r_i = bmp->height - 1 - i;
-        for (j = offx; j < 0x1000 + offx; j++) {
-            rfp->data[w++] =
+        for (j = offx, m = 1, p = 1; j < 0x1000 + offx; j++, m++, p++) {
+            rfp->data[o * 0x1200 + p] =
                 ((bmpdata[r_i * line + j / 8] >> (7 - ( j % 8))) & 1)
                 ? 0xff : 0;
+            if (m % 0x10 == 0) {
+                p+=2;
+            }
         }
+        if (n % 0x10 == 0) {
+            o+=2;
+        }
+
     }
     xensure_errno(fwrite(rfp, 1, size, fout) == size);
     file.data = rfp;
@@ -134,7 +142,7 @@ load_rfp_file(struct mmap_file *file) {
     rfp = file->data;
     xensure(file->size > sizeof(struct rfp_file));
     xensure(file->size == rfp->size);
-    xensure(file->size == 0x1000000 + sizeof(struct rfp_file));
+    xensure(file->size == 0x1440000 + sizeof(struct rfp_file));
     xensure(memcmp(&rfp->header, "RFP", 4) == 0);
 
     return rfp;
