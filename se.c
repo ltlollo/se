@@ -763,6 +763,7 @@ glyph_from_utf8(uint8_t **line) {
             ;
     }
     dbg_assert(0);
+    return 0u;
 }
 
 int
@@ -824,15 +825,15 @@ void
 fill_glyph_narrow(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
     float d_glyph = D_GLYPH;
     float glyph_height = D_GLYPH;
-    float glyph_width = D_GLYPH * 2/3;
+    float glyph_width = D_GLYPH * 23/32;
     uint32_t glyph_x = (glyph >> 0) & 0xff;
     uint32_t glyph_y = (glyph >> 8) & 0xff;
 
     set_quad_coord(win->glyph_mesh + i * win->width + j
-        , glyph_x * d_glyph + d_glyph * 1/18
-        , glyph_y * d_glyph + d_glyph * 1/18
-        , glyph_width  - d_glyph * 1/18
-        , glyph_height - d_glyph * 1/18
+        , -d_glyph * .08 + glyph_x * d_glyph + d_glyph * 1/18
+        , -d_glyph * .00 + glyph_y * d_glyph + d_glyph * 1/18
+        , -d_glyph * .08 + glyph_width  - d_glyph * 1/18
+        , -d_glyph * .00 + glyph_height - d_glyph * 1/18
     );
 }
 
@@ -862,7 +863,10 @@ fill_glyph(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
             }
         }
     } else if (glyph < 0x10000) {
+        // NOTE : the narrow range is not complete
         if (glyph > 0x1f && glyph < 0x7f) {
+            fill_glyph_narrow(i, j, glyph, win);
+        } else if (glyph > 0x9f && glyph < 0x14f) {
             fill_glyph_narrow(i, j, glyph, win);
         } else {
             fill_glyph_wide(i, j, glyph, win);
