@@ -4,10 +4,11 @@
 #ifndef UTIL_H
 #define UTIL_H
 
-#include <stdint.h>
+#include <stddef.h>
 #include <err.h>
 
 #define __pack __attribute__((packed))
+#define __unused __attribute__((unused))
 
 #define xensure_f(f, cond)\
     do {\

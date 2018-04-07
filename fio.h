@@ -4,6 +4,7 @@
 #ifndef FIO_H
 #define FIO_H
 
+#include <stddef.h>
 #include <stdint.h>
 #include "util.h"
 

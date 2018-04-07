@@ -7,11 +7,13 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 #include <math.h>
 
 #include "util.h"
+#include "umap.h"
 #include "fio.h"
 
 #define D_GLYPH     (1.0f / 256)
@@ -215,13 +217,10 @@ void main() {                               \n\
 ";
 
 void
-key_input(unsigned char key, int x, int y) {
+key_input(unsigned char key, int x __unused, int y __unused) {
     size_t size = win.height * win.width;
     struct color *vertex_color;
     size_t i;
-
-    (void)x;
-    (void)y;
 
     switch (key) {
         case 'q': case 27:
@@ -246,9 +245,7 @@ key_input(unsigned char key, int x, int y) {
 }
 
 void
-key_special_input(int key, int x, int y) {
-    (void)x;
-    (void)y;
+key_special_input(int key, int x __unused, int y __unused) {
 
     switch (key) {
         case GLUT_KEY_DOWN:
@@ -277,13 +274,13 @@ gl_check_program(GLuint id, int status) {
 
     if (status == GL_COMPILE_STATUS) {
         glGetShaderiv(id, status, &ok);
-        if(ok == GL_FALSE) {
+        if (ok == GL_FALSE) {
             glGetShaderInfoLog(id, len, &len, info);
         }
     } else {
         xensure(status == GL_LINK_STATUS);
         glGetProgramiv(id, status, &ok);
-        if(ok == GL_FALSE) {
+        if (ok == GL_FALSE) {
             glGetProgramInfoLog(id, len, &len, info);
         }    
     }
@@ -863,10 +860,7 @@ fill_glyph(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
             }
         }
     } else if (glyph < 0x10000) {
-        // NOTE : the narrow range is not complete
-        if (glyph > 0x1f && glyph < 0x7f) {
-            fill_glyph_narrow(i, j, glyph, win);
-        } else if (glyph > 0x9f && glyph < 0x14f) {
+        if (!is_glyph_wide(glyph)) {
             fill_glyph_narrow(i, j, glyph, win);
         } else {
             fill_glyph_wide(i, j, glyph, win);
@@ -1212,7 +1206,6 @@ move_scrollback_down(struct window *win, struct document **docp) {
     fill_screen(docp, win);
 }
 
-
 void
 move_scrollback(struct window *win
     , enum MV_VERT_DIRECTION vdir
@@ -1243,6 +1236,24 @@ move_scrollback(struct window *win
         , sizeof(struct quad_color) * size
         , win->font_color + win->scrollback_pos * win->width
     );
+}
+
+void
+convert_line_external(struct line *line, struct document *doc) {
+    struct extern_line* el = NULL;
+
+    if (!is_line_internal(line, doc)) {
+        return;
+    }
+    ensure(reallocflexarr((void **)&el
+            , sizeof(*el)
+            , line->size
+            , sizeof(*el->data)
+    ));
+    el->utf8_status = UTF8_CLEAN;
+    memcpy(el->data, line->intern_line, line->size * sizeof(*el->data));
+    line->alloc = line->size;
+    line->extern_line = el;
 }
 
 int
