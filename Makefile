@@ -1,5 +1,6 @@
 LDFLAGS			+= `pkg-config --libs glew freeglut` -lm
-CFLAGS			:= -std=c11 `pkg-config --cflags glew freeglut` -Wall -Wextra
+CFLAGS			:= -std=c11 `pkg-config --cflags glew freeglut` -Wall -Wextra \
+	-Wno-pointer-sign
 DEBUG_CFLAGS	:= ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
 RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 -DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops

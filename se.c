@@ -122,7 +122,176 @@ static struct document {
     struct line_metadata lines[];
 } *doc;
 
+static struct diffstack {
+    size_t alloc;
+    size_t curr_checkpoint_beg;
+    size_t curr_checkpoint_end;
+    size_t last_checkpoint_beg;
+    size_t last_checkpoint_end;
+    uint8_t data[];
+} *diff;
+
+
+enum DIFF {
+    DIFF_CHARS_ADD  = 0,
+    DIFF_CHARS_DEL  = 1,
+    DIFF_LINE_SPLIT = 2,
+    DIFF_LINE_MERGE = 3,
+    DIFF_AGGREGATE  = 4,
+};
+
+enum DIFF_DELIM {
+    DIFF_CHAR_SEQ = '\n',
+    DIFF_AGGR_SEQ = '\0',
+};
+
 #include "se.h"
+
+uint32_t
+first_glyph(uint8_t *beg, uint8_t *end) {
+    if (next_utf8_or_null(beg, end) != NULL) {
+        return glyph_from_utf8(&beg);
+    }
+    return *beg;
+}
+
+typedef int(*class_fn)(uint32_t);
+
+int
+always(uint32_t glyph __unused) {
+    return 1;
+}
+
+class_fn glyph_classes[] = {
+    always
+};
+
+int
+is_same_class(uint32_t glyph_fst, uint32_t glyph_snd) {
+    class_fn *f_beg = glyph_classes;
+    class_fn *s_beg = glyph_classes;
+    class_fn *end = f_beg + sizeof(glyph_classes) / sizeof(*glyph_classes);
+
+    while (1) {
+        if (f_beg == end) {
+            return 0;
+        }
+        if ((*f_beg++)(glyph_fst)) {
+            break;
+        }
+    }
+    while (1) {
+        if (s_beg == end) {
+            return 0;
+        }
+        if ((*s_beg++)(glyph_snd)) {
+            break;
+        }
+    }
+    return s_beg == f_beg;
+}
+
+void
+diffstack_insert_chars_add(struct diffstack **ds
+    , uint8_t *str
+    , size_t size
+    , size_t x
+    , size_t y
+    ) {
+    size_t empty_diff = 3 + sizeof(size_t) * 2;
+    struct diffstack *res = *ds;
+    uint8_t *seq_new_beg = str;
+    uint8_t *seq_new_end = str + size;
+    uint8_t *seq_old_beg;
+    uint8_t *seq_old_end;
+    size_t alloc;
+    uint32_t glyph_old;
+    uint32_t glyph_new;
+    size_t old_x;
+    size_t old_y;
+
+    if (size == 0) {
+        return;
+    }
+    if (res->curr_checkpoint_end + size + empty_diff >= res->alloc) {
+        alloc = res->alloc * 2 + size + empty_diff;
+        ensure(reallocflexarr((void **) ds
+            , sizeof(struct diffstack)
+            , sizeof(uint8_t)
+            , alloc
+        ));
+        res = *ds;
+        res->alloc = alloc;
+    }
+    if (res->curr_checkpoint_beg != res->curr_checkpoint_end
+        && res->data[res->curr_checkpoint_beg] == DIFF_CHARS_ADD
+    ) {
+        seq_old_beg = res->data + res->curr_checkpoint_beg + 2
+            + sizeof(size_t) * 2;
+        seq_old_end = res->data + res->curr_checkpoint_end - 1;
+        memcpy(&old_x, res->data + res->curr_checkpoint_beg + 1
+            , sizeof(size_t)
+        );
+        memcpy(&old_y, res->data + res->curr_checkpoint_beg + 1
+            + sizeof(size_t)
+            , sizeof(size_t)
+        );
+        dbg_assert(seq_old_end > seq_old_beg);
+        dbg_assert(seq_old_end - seq_old_beg != 0);
+        if (old_y != y || old_x + (seq_old_end - seq_old_beg) != x) {
+            goto DIFFERENT_DIFF_CLASS;
+        }
+        glyph_old = first_glyph(seq_old_beg, seq_old_end);
+        glyph_new = first_glyph(seq_new_beg, seq_new_end);
+
+        if (!is_same_class(glyph_old, glyph_new)) {
+            goto DIFFERENT_DIFF_CLASS;    
+        }
+        dbg_assert(seq_old_end[0] == DIFF_CHAR_SEQ);
+        memcpy(seq_old_end, str, size);
+        seq_old_end[size] = DIFF_CHAR_SEQ;
+        res->curr_checkpoint_end += size;
+    } else {
+DIFFERENT_DIFF_CLASS:
+        res->curr_checkpoint_beg = res->curr_checkpoint_end;
+        res->curr_checkpoint_end = res->curr_checkpoint_beg + empty_diff
+            + size;
+        res->data[res->curr_checkpoint_beg] = DIFF_CHARS_ADD;
+        memcpy(res->data + res->curr_checkpoint_beg + 1
+            , &x
+            , sizeof(size_t)
+        );
+        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
+            , &y
+            , sizeof(size_t)
+        );
+        memcpy(res->data + res->curr_checkpoint_beg + 2 + 2 * sizeof(size_t)
+            , str
+            , size
+        );
+        res->data[res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)]
+            = DIFF_CHAR_SEQ;
+        res->data[res->curr_checkpoint_beg + empty_diff + size - 1]
+            = DIFF_CHAR_SEQ;
+    }
+    res->last_checkpoint_beg = res->curr_checkpoint_beg;
+    res->last_checkpoint_end = res->curr_checkpoint_end;
+}
+
+int
+init_diffstack(struct diffstack **ds, size_t alloc) {
+    struct diffstack *res;
+
+    ensure(reallocflexarr((void **) ds
+        , sizeof(struct diffstack)
+        , sizeof(uint8_t)
+        , alloc
+    ));
+    res = *ds;
+    memset(res, 0, sizeof(struct diffstack));
+    res->alloc = alloc;
+    return 0;
+}
 
 void
 render(void) {
@@ -151,7 +320,6 @@ resize_display_matrix(int win_width_px, int win_height_px) {
 
     gen_display_matrix(&win, win_width, win_height);
     invalidate_win_line_metadata(doc);
-    colorful_test(&win);
     fill_screen(&doc, &win);
 
     glBufferData(GL_ARRAY_BUFFER
@@ -203,17 +371,22 @@ void main() {                \n\
 }                            \n\
 ";
 
-static const char *fs_src  = "              \n\
-#version 130                                \n\
-in vec4 color;                              \n\
-in vec2 uv;                                 \n\
-out vec4 fColor;                            \n\
-uniform sampler2D texture;                  \n\
-void main() {                               \n\
-    vec4 bg = vec4(0.152, 0.156, 0.13, 1.0);\n\
-    fColor = texture2D(texture, uv);        \n\
-    fColor = (1.0 - fColor.r) * color + bg; \n\
-}                                           \n\
+static const char *fs_src  = "                                  \n\
+#version 130                                                    \n\
+in vec4 color;                                                  \n\
+in vec2 uv;                                                     \n\
+out vec4 fColor;                                                \n\
+uniform sampler2D texture;                                      \n\
+void main() {                                                   \n\
+    vec4 bg = vec4(0.152, 0.156, 0.13, 1.0);                    \n\
+    fColor = texture2D(texture, uv);                            \n\
+    if (color.r < 0.5) {                                        \n\
+        vec4 c = vec4(color.r * 4, color.g, color.b, color.a);  \n\
+        fColor = (1.0 - fColor.r) * c + bg;                     \n\
+    } else {                                                    \n\
+        fColor = fColor.r * color;                              \n\
+    }                                                           \n\
+}                                                               \n\
 ";
 
 void
@@ -223,6 +396,11 @@ key_input(unsigned char key, int x __unused, int y __unused) {
     size_t i;
 
     switch (key) {
+        case 'd':
+            line_insert(0, doc->lines, doc, &win, "asd", 3);
+            fill_screen(&doc, &win);
+            gl_buffers_upload(&win);
+            break;
         case 'q': case 27:
             exit(0);
         case 'c':
@@ -443,9 +621,9 @@ colorful_test(struct window *win) {
             g = sin(2 * i * M_PI / win->scrollback_size + M_PI);
             b = cos(2 * j * M_PI / win->width);
             set_quad_color(win->font_color + i * win->width + j
-                , r * r * 0.95 + 0.15
-                , g * g * 0.95 + 0.15
-                , b * b * 0.95 + 0.15
+                , (r * r * 0.95 + 0.15) * .25
+                , (g * g * 0.95 + 0.15) * 1.0
+                , (b * b * 0.95 + 0.15) * 1.0
             );
         }
     }
@@ -605,33 +783,8 @@ load_line(struct line_metadata *lm
             win_lines++;
             curr_width = 0;
         }
-        if ((*curr & 0x80) == 0) {
-            curr += 1;
-        } else if ((*curr & 0xe0) == 0xc0) {
-            if ((curr + 2 >= end)
-                || ((curr[1] & 0xc0) != 0x80)
-            ) {
-                goto PARSE_DIRTY;
-            }
-            curr += 2;
-        } else if ((*curr & 0xf0) == 0xe0) {
-            if ((curr + 3 >= end)
-                || ((curr[1] & 0xc0) != 0x80)
-                || ((curr[2] & 0xc0) != 0x80)
-            ) {
-                goto PARSE_DIRTY;
-            }
-            curr += 3;
-        } else if ((*curr & 0xf8) == 0xf0) {
-            if ((curr + 4 >= end)
-                || ((curr[1] & 0xc0) != 0x80)
-                || ((curr[2] & 0xc0) != 0x80)
-                || ((curr[3] & 0xc0) != 0x80)
-            ) {
-                goto PARSE_DIRTY;
-            }
-            curr += 4;
-        } else {
+        curr = next_utf8_or_null(curr, end);
+        if (curr == NULL) {
             goto PARSE_DIRTY;
         }
     } while (1);
@@ -651,6 +804,43 @@ PARSE_DIRTY:
     } else {
         return curr + 1;
     }
+}
+
+uint8_t *
+next_utf8_or_null(uint8_t *curr, uint8_t *end) {
+    if (curr == end) {
+        return curr;
+    }
+    if ((*curr & 0x80) == 0) {
+        curr += 1;
+    } else if ((*curr & 0xe0) == 0xc0) {
+        if ((curr + 2 >= end)
+            || ((curr[1] & 0xc0) != 0x80)
+        ) {
+            return NULL;
+        }
+        curr += 2;
+    } else if ((*curr & 0xf0) == 0xe0) {
+        if ((curr + 3 >= end)
+            || ((curr[1] & 0xc0) != 0x80)
+            || ((curr[2] & 0xc0) != 0x80)
+        ) {
+            return NULL;
+        }
+        curr += 3;
+    } else if ((*curr & 0xf8) == 0xf0) {
+        if ((curr + 4 >= end)
+            || ((curr[1] & 0xc0) != 0x80)
+            || ((curr[2] & 0xc0) != 0x80)
+            || ((curr[3] & 0xc0) != 0x80)
+        ) {
+            return NULL;
+        }
+        curr += 4;
+    } else {
+        return NULL;
+    }
+    return curr;
 }
 
 int
@@ -871,6 +1061,136 @@ fill_glyph(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
     return j + 1;
 }
 
+int
+is_tok(uint32_t c) {
+    if (c >= 'a' && c <= 'z') {
+        return 1;
+    }
+    if (c >= 'A' && c <= 'Z') {
+        return 1;
+    }
+    if (c >= '0' && c <= '9') {
+        return 1;
+    }
+    if (c == '_') {
+        return 1;
+    }
+    return 0;
+}
+
+int
+is_digit(uint32_t c) {
+    if (c >= '0' && c <= '9') {
+        return 1;
+    }
+    return 0;
+}
+
+int
+match(uint8_t *beg, uint8_t *curr, uint8_t *end, char *str, intptr_t size) {
+    if (end - curr < size) {
+        return 0;
+    }
+    if (curr - 1 - beg > 0 && is_tok(curr[-1])) {
+        return 0;
+    }
+    if (end - curr + size > 0 && is_tok(curr[size])) {
+        return 0;
+    }
+    return memcmp(curr, str, size) == 0;
+}
+
+struct colored_world {
+    int color_pos;
+    unsigned size;
+};
+
+#define ret_match(beg, str, end, color, res, cxstr)         \
+    if (match(beg, str, end, cxstr, sizeof(cxstr) - 1)) {   \
+        res.color_pos = color;                              \
+        res.size = sizeof(cxstr) - 1;                       \
+        return res;                                         \
+    }
+
+struct colored_world
+match_word(uint8_t *beg, uint8_t *curr, uint8_t *end) {
+    struct colored_world res = {0, 1};
+    uint8_t *tmp;
+
+    if (*curr <= 0x20 || *curr > 0x7e) {
+        return res;
+    }
+    ret_match(beg, curr, end, 1, res, "#include");
+    ret_match(beg, curr, end, 1, res, "#define");
+    ret_match(beg, curr, end, 2, res, "if");
+    ret_match(beg, curr, end, 2, res, "else");
+    ret_match(beg, curr, end, 2, res, "do");
+    ret_match(beg, curr, end, 2, res, "for");
+    ret_match(beg, curr, end, 2, res, "while");
+    ret_match(beg, curr, end, 2, res, "switch");
+    ret_match(beg, curr, end, 2, res, "case");
+    ret_match(beg, curr, end, 2, res, "break");
+    ret_match(beg, curr, end, 2, res, "continue");
+    ret_match(beg, curr, end, 2, res, "goto");
+    ret_match(beg, curr, end, 2, res, "return");
+    ret_match(beg, curr, end, 2, res, "sizeof");
+    ret_match(beg, curr, end, 2, res, "return");
+    ret_match(beg, curr, end, 3, res, "static");
+    ret_match(beg, curr, end, 3, res, "extern");
+    ret_match(beg, curr, end, 3, res, "struct");
+    ret_match(beg, curr, end, 3, res, "enum");
+    ret_match(beg, curr, end, 3, res, "union");
+    ret_match(beg, curr, end, 3, res, "const");
+    ret_match(beg, curr, end, 3, res, "volatile");
+    ret_match(beg, curr, end, 3, res, "char");
+    ret_match(beg, curr, end, 3, res, "unsigned");
+    ret_match(beg, curr, end, 3, res, "signed");
+    ret_match(beg, curr, end, 3, res, "long");
+    ret_match(beg, curr, end, 3, res, "int");
+    ret_match(beg, curr, end, 3, res, "void");
+    ret_match(beg, curr, end, 3, res, "short");
+    ret_match(beg, curr, end, 3, res, "uint8_t");
+    ret_match(beg, curr, end, 3, res, "uint16_t");
+    ret_match(beg, curr, end, 3, res, "uint32_t");
+    ret_match(beg, curr, end, 3, res, "uint64_t");
+    ret_match(beg, curr, end, 3, res, "size_t");
+    ret_match(beg, curr, end, 3, res, "GLuint");
+    ret_match(beg, curr, end, 3, res, "GLfloat");
+
+    if (match(beg, curr, end, "//", 2)) {
+        res.size = end - curr;
+        res.color_pos = 4;
+    } else if (*curr == '"') {
+        end = memchr(curr + 1, '"', end - curr - 1);
+        if (end) {
+            res.size = end - curr + 1;
+            res.color_pos = 5;
+        }
+    } else if (*curr == '<') {
+        for (tmp = curr + 1; tmp < end; tmp++) {
+            if (is_tok(*tmp) || *tmp == '/' || *tmp == '.') {
+                continue;
+            }
+            if (*tmp == '>') {
+                res.size = tmp + 1 - curr;
+                res.color_pos = 5;
+                break;
+            }
+            break;
+        }
+    }
+    return res;
+}
+
+static struct color colors_table[] = {
+    {0.85, 1.00, 1.00},
+    {1.00, 0.00, 0.37},
+    {1.00, 0.84, 0.37},
+    {0.52, 0.68, 0.37},
+    {0.52, 0.37, 0.52},
+    {0.68, 0.68, 0.52},
+};
+
 unsigned
 fill_line(unsigned i
     , enum UTF8_STATUS utf8_status
@@ -878,13 +1198,24 @@ fill_line(unsigned i
     , uint8_t *line_end
     , struct window *win
     ) {
+    uint8_t *line_curr = line_beg;
     unsigned j = 0;
+    struct colored_world cw = { 0, 0 };
     uint32_t glyph;
 
     if (utf8_status == UTF8_CLEAN) {
-        while (line_beg != line_end) {
-            glyph = glyph_from_utf8(&line_beg);
-            dbg_assert(line_beg <= line_end);
+        while (line_curr != line_end) {
+            if (cw.size == 0) {
+                cw = match_word(line_beg, line_curr, line_end);
+            }
+            cw.size--;
+            set_quad_color(win->font_color + i * win->width + j
+                , colors_table[cw.color_pos].r * 0.25
+                , colors_table[cw.color_pos].g
+                , colors_table[cw.color_pos].b
+            );
+            glyph = glyph_from_utf8(&line_curr);
+            dbg_assert(line_curr <= line_end);
             j = fill_glyph(i, j, glyph, win);
             if (j == win->width) {
                 j = 0;
@@ -895,8 +1226,13 @@ fill_line(unsigned i
             }
         }
     } else {
-        while (line_beg != line_end) {
-            j = fill_glyph(i, j, *line_beg++, win);
+        while (line_curr != line_end) {
+            set_quad_color(win->font_color + i * win->width + j
+                , colors_table[0].r * 0.25
+                , colors_table[0].g
+                , colors_table[0].b
+            );
+            j = fill_glyph(i, j, *line_curr++, win);
             if (j == win->width) {
                 j = 0;
                 i++;
@@ -907,6 +1243,11 @@ fill_line(unsigned i
         }
     }
     while (j < win->width) {
+        set_quad_color(win->font_color + i * win->width + j
+            , colors_table[0].r * 0.25
+            , colors_table[0].g
+            , colors_table[0].b
+        );
         fill_glyph(i, j, 0x20, win);
         j++;
     }
@@ -1207,12 +1548,27 @@ move_scrollback_down(struct window *win, struct document **docp) {
 }
 
 void
+gl_buffers_upload(struct window *win) {
+    size_t size = win->height * win->width;
+
+    glBufferSubData(GL_ARRAY_BUFFER
+        , sizeof(struct quad_coord) * size
+        , sizeof(struct quad_coord) * size
+        , win->glyph_mesh + win->scrollback_pos * win->width
+    );
+    glBufferSubData(GL_ARRAY_BUFFER
+        , sizeof(struct quad_coord) * 2 * size
+        , sizeof(struct quad_color) * size
+        , win->font_color + win->scrollback_pos * win->width
+    );
+}
+
+void
 move_scrollback(struct window *win
     , enum MV_VERT_DIRECTION vdir
     , size_t times
     , struct document **docp
     ) {
-    size_t size = win->height * win->width;
     size_t i;
 
     if (vdir == MV_VERT_UP) {
@@ -1226,16 +1582,7 @@ move_scrollback(struct window *win
     } else {
         dbg_assert(0);
     }
-    glBufferSubData(GL_ARRAY_BUFFER
-        , sizeof(struct quad_coord) * size
-        , sizeof(struct quad_coord) * size
-        , win->glyph_mesh + win->scrollback_pos * win->width
-    );
-    glBufferSubData(GL_ARRAY_BUFFER
-        , sizeof(struct quad_coord) * 2 * size
-        , sizeof(struct quad_color) * size
-        , win->font_color + win->scrollback_pos * win->width
-    );
+    gl_buffers_upload(win);
 }
 
 void
@@ -1256,6 +1603,56 @@ convert_line_external(struct line *line, struct document *doc) {
     line->extern_line = el;
 }
 
+
+void
+line_insert(size_t pos
+    , struct line_metadata *lm
+    , struct document *doc
+    , struct window *win
+    , uint8_t *data
+    , size_t size
+    ) {
+    struct line *line = &lm->line;
+    uint8_t *data_curr = data;
+    uint8_t *data_end = data + size;
+    size_t alloc;
+    struct extern_line *el;
+    uint8_t *el_curr;
+    uint8_t *el_end;
+
+    convert_line_external(line, doc);
+    el = line->extern_line;
+
+    if (line->size + size > line->alloc) {
+        alloc = line->size + line->size / 2 + size;
+        ensure(reallocflexarr((void **)&el
+                , sizeof(*el)
+                , alloc
+                , sizeof(*el->data)
+        ));
+        line->alloc = alloc;
+        line->extern_line = el;
+    }
+    el_curr = el->data + pos;
+    el_end = el->data + line->size;
+
+    if (next_utf8_or_null(el_curr, el_end) == NULL) {
+        el->utf8_status = UTF8_DIRTY;
+    }
+    while (data_curr != data_end) {
+        data_curr = next_utf8_or_null(data_curr, data_end);
+        if (data_curr == NULL) {
+            el->utf8_status = UTF8_DIRTY;
+            break;
+        }
+    }
+    memmove(el_curr + size, el_curr, line->size * sizeof(*el_curr));
+    memcpy(el_curr, data, size);
+    line->size += size;
+    recompute_win_lines_metadata(lm, doc, win);
+    diffstack_insert_chars_add(&diff, data, size, pos, lm - doc->lines);
+}
+
 int
 main(int argc, char *argv[]) {
     char *fname = "se.c";
@@ -1263,6 +1660,7 @@ main(int argc, char *argv[]) {
     if (argc - 1 > 0) {
         fname = argv[1];
     }
+    ensure(init_diffstack(&diff, 0x1000) == 0);
     ensure(init_doc(fname, &doc) == 0);
 
     xensure(win_init(argc, argv) == 0);
