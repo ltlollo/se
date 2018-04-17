@@ -380,11 +380,11 @@ uniform sampler2D texture;                                      \n\
 void main() {                                                   \n\
     vec4 bg = vec4(0.152, 0.156, 0.13, 1.0);                    \n\
     fColor = texture2D(texture, uv);                            \n\
-    if (color.r < 0.5) {                                        \n\
-        vec4 c = vec4(color.r * 4, color.g, color.b, color.a);  \n\
-        fColor = (1.0 - fColor.r) * c + bg;                     \n\
+    if (color.r <= 1.0) {                                       \n\
+        fColor = (1.0 - fColor.r) * color + bg;                 \n\
     } else {                                                    \n\
-        fColor = fColor.r * color;                              \n\
+        vec4 hilight = vec4(1.0, 1.0, 1.0, 1.0);                \n\
+        fColor = fColor.r * hilight;                            \n\
     }                                                           \n\
 }                                                               \n\
 ";
@@ -1080,18 +1080,19 @@ is_tok(uint32_t c) {
 
 int
 is_digit(uint32_t c) {
-    if (c >= '0' && c <= '9') {
-        return 1;
-    }
-    return 0;
+    return c >= '0' && c <= '9';
 }
 
 int
-match(uint8_t *beg, uint8_t *curr, uint8_t *end, char *str, intptr_t size) {
+is_hex(uint32_t c) {
+    return is_digit(c) || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
+}
+
+#define eat_chr(beg, end, ch) if (beg != end && *curr == ch) beg++;
+
+int
+keyword_match(uint8_t *curr, uint8_t *end, char *str, intptr_t size) {
     if (end - curr < size) {
-        return 0;
-    }
-    if (curr - 1 - beg > 0 && is_tok(curr[-1])) {
         return 0;
     }
     if (end - curr + size > 0 && is_tok(curr[size])) {
@@ -1100,95 +1101,176 @@ match(uint8_t *beg, uint8_t *curr, uint8_t *end, char *str, intptr_t size) {
     return memcmp(curr, str, size) == 0;
 }
 
+uint8_t *
+number_match(uint8_t *curr, uint8_t *end) {
+    uint8_t *beg = curr;
+    if (end - curr == 0) {
+        return beg;
+    }
+    if (!is_digit(*curr) && *curr != '.') {
+        return beg;
+    }
+    if (end - curr > 2 && curr[0] == '0' && curr[1] == 'x' && is_hex(curr[2])) {
+        for (curr = curr + 2; curr != end; curr++) {
+            if (is_hex(*curr)) {
+                continue;
+            }
+            if (is_tok(*curr)) {
+                return beg;
+            }
+            return curr;
+        }
+    }
+    while (curr != end && is_digit(*curr)) {
+        curr++;
+    }
+    if (curr != end && *curr == '.') {
+        curr++;
+        while (curr != end && is_digit(*curr)) {
+            curr++;
+        }
+        eat_chr(curr, end, 'f');
+        if (is_tok(*curr)) {
+            return beg;
+        }
+        return curr;
+    }
+    eat_chr(curr, end, 'u');
+    eat_chr(curr, end, 'l');
+    eat_chr(curr, end, 'l');
+    if (is_tok(*curr)) {
+        return beg;
+    }
+    return curr;
+}
+
 struct colored_world {
     int color_pos;
     unsigned size;
 };
 
-#define ret_match(beg, str, end, color, res, cxstr)         \
-    if (match(beg, str, end, cxstr, sizeof(cxstr) - 1)) {   \
-        res.color_pos = color;                              \
-        res.size = sizeof(cxstr) - 1;                       \
-        return res;                                         \
+#define ret_keyword_match(curr, end, color, res, cxstr)         \
+    if (keyword_match(curr, end, cxstr, sizeof(cxstr) - 1)) {   \
+        res.color_pos = color;                                  \
+        res.size = sizeof(cxstr) - 1;                           \
+        return res;                                             \
     }
 
 struct colored_world
-match_word(uint8_t *beg, uint8_t *curr, uint8_t *end) {
+color_span(uint8_t *beg, uint8_t *curr, uint8_t *end) {
     struct colored_world res = {0, 1};
-    uint8_t *tmp;
+    uint8_t *keyword_end;
 
     if (*curr <= 0x20 || *curr > 0x7e) {
         return res;
     }
-    ret_match(beg, curr, end, 1, res, "#include");
-    ret_match(beg, curr, end, 1, res, "#define");
-    ret_match(beg, curr, end, 2, res, "if");
-    ret_match(beg, curr, end, 2, res, "else");
-    ret_match(beg, curr, end, 2, res, "do");
-    ret_match(beg, curr, end, 2, res, "for");
-    ret_match(beg, curr, end, 2, res, "while");
-    ret_match(beg, curr, end, 2, res, "switch");
-    ret_match(beg, curr, end, 2, res, "case");
-    ret_match(beg, curr, end, 2, res, "break");
-    ret_match(beg, curr, end, 2, res, "continue");
-    ret_match(beg, curr, end, 2, res, "goto");
-    ret_match(beg, curr, end, 2, res, "return");
-    ret_match(beg, curr, end, 2, res, "sizeof");
-    ret_match(beg, curr, end, 2, res, "return");
-    ret_match(beg, curr, end, 3, res, "static");
-    ret_match(beg, curr, end, 3, res, "extern");
-    ret_match(beg, curr, end, 3, res, "struct");
-    ret_match(beg, curr, end, 3, res, "enum");
-    ret_match(beg, curr, end, 3, res, "union");
-    ret_match(beg, curr, end, 3, res, "const");
-    ret_match(beg, curr, end, 3, res, "volatile");
-    ret_match(beg, curr, end, 3, res, "char");
-    ret_match(beg, curr, end, 3, res, "unsigned");
-    ret_match(beg, curr, end, 3, res, "signed");
-    ret_match(beg, curr, end, 3, res, "long");
-    ret_match(beg, curr, end, 3, res, "int");
-    ret_match(beg, curr, end, 3, res, "void");
-    ret_match(beg, curr, end, 3, res, "short");
-    ret_match(beg, curr, end, 3, res, "uint8_t");
-    ret_match(beg, curr, end, 3, res, "uint16_t");
-    ret_match(beg, curr, end, 3, res, "uint32_t");
-    ret_match(beg, curr, end, 3, res, "uint64_t");
-    ret_match(beg, curr, end, 3, res, "size_t");
-    ret_match(beg, curr, end, 3, res, "GLuint");
-    ret_match(beg, curr, end, 3, res, "GLfloat");
-
-    if (match(beg, curr, end, "//", 2)) {
+    if (end - curr >= 2 && memcmp(curr, "//", 2) == 0) {
         res.size = end - curr;
         res.color_pos = 4;
-    } else if (*curr == '"') {
+        return res;
+    }
+    if (beg - curr == 0 && *curr == '#') {
+        res.color_pos = 1;
+        res.size = end - curr;
+        return res;
+    }
+    if (end - curr > 2 && *curr == '\'') {
+        for (keyword_end = curr + 1; keyword_end < end; keyword_end++) {
+            if (*keyword_end == '\'') {
+                break;
+            }
+        }
+        res.color_pos = 6;
+        res.size = keyword_end - curr + 1;
+        return res;
+    }
+    if (curr - 1 - beg > 0 && is_tok(curr[-1])) {
+        return res;
+    }
+    ret_keyword_match(curr, end, 2, res, "if");
+    ret_keyword_match(curr, end, 2, res, "else");
+    ret_keyword_match(curr, end, 2, res, "do");
+    ret_keyword_match(curr, end, 2, res, "for");
+    ret_keyword_match(curr, end, 2, res, "while");
+    ret_keyword_match(curr, end, 2, res, "switch");
+    ret_keyword_match(curr, end, 2, res, "case");
+    ret_keyword_match(curr, end, 2, res, "break");
+    ret_keyword_match(curr, end, 2, res, "continue");
+    ret_keyword_match(curr, end, 2, res, "goto");
+    ret_keyword_match(curr, end, 2, res, "return");
+    ret_keyword_match(curr, end, 2, res, "sizeof");
+    ret_keyword_match(curr, end, 2, res, "return");
+    ret_keyword_match(curr, end, 3, res, "static");
+    ret_keyword_match(curr, end, 3, res, "extern");
+    ret_keyword_match(curr, end, 3, res, "struct");
+    ret_keyword_match(curr, end, 3, res, "enum");
+    ret_keyword_match(curr, end, 3, res, "union");
+    ret_keyword_match(curr, end, 3, res, "const");
+    ret_keyword_match(curr, end, 3, res, "volatile");
+    ret_keyword_match(curr, end, 3, res, "char");
+    ret_keyword_match(curr, end, 3, res, "unsigned");
+    ret_keyword_match(curr, end, 3, res, "float");
+    ret_keyword_match(curr, end, 3, res, "double");
+    ret_keyword_match(curr, end, 3, res, "signed");
+    ret_keyword_match(curr, end, 3, res, "long");
+    ret_keyword_match(curr, end, 3, res, "int");
+    ret_keyword_match(curr, end, 3, res, "void");
+    ret_keyword_match(curr, end, 3, res, "short");
+    ret_keyword_match(curr, end, 3, res, "uint8_t");
+    ret_keyword_match(curr, end, 3, res, "uint16_t");
+    ret_keyword_match(curr, end, 3, res, "uint32_t");
+    ret_keyword_match(curr, end, 3, res, "uint64_t");
+    ret_keyword_match(curr, end, 3, res, "int8_t");
+    ret_keyword_match(curr, end, 3, res, "int16_t");
+    ret_keyword_match(curr, end, 3, res, "int32_t");
+    ret_keyword_match(curr, end, 3, res, "int64_t");
+    ret_keyword_match(curr, end, 3, res, "size_t");
+    ret_keyword_match(curr, end, 3, res, "ssize_t");
+    ret_keyword_match(curr, end, 3, res, "GLuint");
+    ret_keyword_match(curr, end, 3, res, "GLfloat");
+    ret_keyword_match(curr, end, 6, res, "NULL");
+
+    if (*curr == '"') {
         end = memchr(curr + 1, '"', end - curr - 1);
         if (end) {
             res.size = end - curr + 1;
             res.color_pos = 5;
         }
-    } else if (*curr == '<') {
-        for (tmp = curr + 1; tmp < end; tmp++) {
-            if (is_tok(*tmp) || *tmp == '/' || *tmp == '.') {
+        return res;
+    }
+    if (*curr == '<') {
+        for (keyword_end = curr + 1; keyword_end < end; keyword_end++) {
+            if (is_tok(*keyword_end)
+                || *keyword_end == '/'
+                || *keyword_end == '.'
+                ) {
                 continue;
             }
-            if (*tmp == '>') {
-                res.size = tmp + 1 - curr;
+            if (*keyword_end == '>') {
+                res.size = keyword_end + 1 - curr;
                 res.color_pos = 5;
-                break;
+                return res;
             }
             break;
         }
+    }
+    keyword_end = number_match(curr, end);
+    if (keyword_end != curr) {
+        res.size = keyword_end - curr;
+        res.color_pos = 6;
+        return res;
     }
     return res;
 }
 
 static struct color colors_table[] = {
-    {0.85, 1.00, 1.00},
-    {1.00, 0.00, 0.37},
-    {1.00, 0.84, 0.37},
-    {0.52, 0.68, 0.37},
-    {0.52, 0.37, 0.52},
-    {0.68, 0.68, 0.52},
+    [0] = {0.85, 1.00, 1.00}, // light gray
+    [1] = {1.00, 0.00, 0.37}, // dark pink
+    [2] = {1.00, 0.84, 0.37}, // yellow
+    [3] = {0.52, 0.68, 0.37}, // green
+    [4] = {0.52, 0.37, 0.52}, // dark purple
+    [5] = {0.68, 0.68, 0.52}, // light green
+    [6] = {0.84, 0.52, 0.37}, // orange
 };
 
 unsigned
@@ -1206,11 +1288,10 @@ fill_line(unsigned i
     if (utf8_status == UTF8_CLEAN) {
         while (line_curr != line_end) {
             if (cw.size == 0) {
-                cw = match_word(line_beg, line_curr, line_end);
+                cw = color_span(line_beg, line_curr, line_end);
             }
-            cw.size--;
             set_quad_color(win->font_color + i * win->width + j
-                , colors_table[cw.color_pos].r * 0.25
+                , colors_table[cw.color_pos].r
                 , colors_table[cw.color_pos].g
                 , colors_table[cw.color_pos].b
             );
@@ -1224,11 +1305,12 @@ fill_line(unsigned i
             if (i == win->scrollback_size) {
                 return i;
             }
+            cw.size--;
         }
     } else {
         while (line_curr != line_end) {
             set_quad_color(win->font_color + i * win->width + j
-                , colors_table[0].r * 0.25
+                , colors_table[0].r
                 , colors_table[0].g
                 , colors_table[0].b
             );
@@ -1244,7 +1326,7 @@ fill_line(unsigned i
     }
     while (j < win->width) {
         set_quad_color(win->font_color + i * win->width + j
-            , colors_table[0].r * 0.25
+            , colors_table[0].r
             , colors_table[0].g
             , colors_table[0].b
         );
