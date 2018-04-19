@@ -1,3 +1,6 @@
+// This is free and unencumbered software released into the public domain.
+// For more information, see LICENSE.
+
 static int
 is_glyph_wide(uint32_t glyph) {
     if (0) {

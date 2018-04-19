@@ -87,7 +87,7 @@ convert_bmp_window_to_rfp(struct bitmap_data *bmp
     , unsigned offy
     , const char *fname
     ) {
-    FILE *fout = fopen(fname, "w");
+    int fd = open(fname, O_RDWR | O_CREAT, 0644);
     uint32_t size = 0x1440000 + sizeof(struct rfp_file);
     char *bmpdata = bmp->data;
     size_t line = bmp->padded_bytes_per_row;
@@ -97,19 +97,16 @@ convert_bmp_window_to_rfp(struct bitmap_data *bmp
     size_t i, j, n, m, o, p;
     size_t r_i;
 
-    xensure_errno(fout != NULL);
+    xensure_errno(fd != -1);
     end = bmp->data + line * (offx + 0x1000);
     xensure(end <= bmp->handle.data + bmp->handle.size);
 
-    rfp = mmap(NULL, size, PROT_WRITE | PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS
-        , -1
-        , 0
-    );
+    xensure(ftruncate(fd, size) != -1);
+    rfp = mmap(NULL, size, PROT_WRITE, MAP_SHARED, fd, 0);
     xensure_errno(rfp != MAP_FAILED);
 
     memcpy(&rfp->header, "RFP", 4);
     memcpy(&rfp->size, &size, sizeof(size));
-    memset(rfp->data, 0xff, 0x1440000);
 
     // NOTE : slow convert procedure, but it's just an offline precomputation
     for (i = offy, n = 1, o = 1; i < 0x1000 + offy; i++, n++, o++) {
@@ -117,7 +114,7 @@ convert_bmp_window_to_rfp(struct bitmap_data *bmp
         for (j = offx, m = 1, p = 1; j < 0x1000 + offx; j++, m++, p++) {
             rfp->data[o * 0x1200 + p] =
                 ((bmpdata[r_i * line + j / 8] >> (7 - ( j % 8))) & 1)
-                ? 0xff : 0;
+                ? 0 : 0xff;
             if (m % 0x10 == 0) {
                 p+=2;
             }
@@ -127,11 +124,10 @@ convert_bmp_window_to_rfp(struct bitmap_data *bmp
         }
 
     }
-    xensure_errno(fwrite(rfp, 1, size, fout) == size);
     file.data = rfp;
     file.size = size;
     unload_file(&file);
-    fclose(fout);
+    close(fd);
     return 0;
 }
 
@@ -144,6 +140,19 @@ load_rfp_file(struct mmap_file *file) {
     xensure(file->size == rfp->size);
     xensure(file->size == 0x1440000 + sizeof(struct rfp_file));
     xensure(memcmp(&rfp->header, "RFP", 4) == 0);
+
+    return rfp;
+}
+
+struct rfp_file *
+load_cfp_file(struct mmap_file *file) {
+    struct rfp_file *rfp;
+
+    rfp = file->data;
+    xensure(file->size > sizeof(struct rfp_file));
+    xensure(file->size == rfp->size);
+    xensure(file->size == 0x288000 + sizeof(struct rfp_file));
+    xensure(memcmp(&rfp->header, "CFP", 4) == 0);
 
     return rfp;
 }

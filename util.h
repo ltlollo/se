@@ -9,6 +9,7 @@
 
 #define __pack __attribute__((packed))
 #define __unused __attribute__((unused))
+#define __align(n) __attribute__((aligned(n)))
 
 #define xensure_f(f, cond)\
     do {\

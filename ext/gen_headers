@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+cat $@                                                                      |
+sed 's://.*::'                                                              |
+sed '/:/d;s/    ) {/) {/;s/^    ,/,/;s/^\([^# ]\)/@\1/'                     |
+egrep '^@'                                                                  |
+sed 's/^@//;s/) {//;s/}/) { }/'                                             |
+tr '\n' ' '                                                                 |
+sed -e 's/}/}\n/g'                                                          |
+sed -e 's/;/;\n/g'                                                          |
+egrep '^ .*\(.*\) { }'                                                      |
+sed 's/ { }/;/;s/^ *//;s/ *[a-zA-Z0-9_]* *,/,/g;s/ *[a-zA-Z0-9_]* *)/)/g'   |
+grep -v ' main('                                                            |
+cat

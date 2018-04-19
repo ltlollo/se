@@ -15,6 +15,9 @@
 #include "util.h"
 #include "umap.h"
 #include "fio.h"
+#include "lex.h"
+
+#include "comp.h"
 
 #define D_GLYPH     (1.0f / 256)
 #define H_GLYPH_PX  (12)
@@ -371,22 +374,22 @@ void main() {                \n\
 }                            \n\
 ";
 
-static const char *fs_src  = "                                  \n\
-#version 130                                                    \n\
-in vec4 color;                                                  \n\
-in vec2 uv;                                                     \n\
-out vec4 fColor;                                                \n\
-uniform sampler2D texture;                                      \n\
-void main() {                                                   \n\
-    vec4 bg = vec4(0.152, 0.156, 0.13, 1.0);                    \n\
-    fColor = texture2D(texture, uv);                            \n\
-    if (color.r <= 1.0) {                                       \n\
-        fColor = (1.0 - fColor.r) * color + bg;                 \n\
-    } else {                                                    \n\
-        vec4 hilight = vec4(1.0, 1.0, 1.0, 1.0);                \n\
-        fColor = fColor.r * hilight;                            \n\
-    }                                                           \n\
-}                                                               \n\
+static const char *fs_src  = "                      \n\
+#version 130                                        \n\
+in vec4 color;                                      \n\
+in vec2 uv;                                         \n\
+out vec4 fColor;                                    \n\
+uniform sampler2D texture;                          \n\
+void main() {                                       \n\
+    vec4 bg = vec4(0.152, 0.156, 0.13, 1.0);        \n\
+    fColor = texture2D(texture, uv);                \n\
+    if (color.r <= 1.0) {                           \n\
+        fColor = fColor.r * color + bg;             \n\
+    } else {                                        \n\
+        vec4 hilight = vec4(1.0, 1.0, 1.0, 1.0);    \n\
+        fColor = (1.0 - fColor.r) * hilight;        \n\
+    }                                               \n\
+}                                                   \n\
 ";
 
 void
@@ -630,14 +633,37 @@ colorful_test(struct window *win) {
 }
 
 int
+load_font(const char *fname __unused, struct mmap_file *file) {
+#ifdef LINK_FONT
+    extern const char _binary_unifont_cfp_start;
+    extern const char _binary_unifont_cfp_end;
+    file->size = &_binary_unifont_cfp_end - &_binary_unifont_cfp_start;
+    file->data = (void *)&_binary_unifont_cfp_start;
+    return 0;
+#else
+    return load_file(fname, file);
+#endif
+}
+
+void
+unload_font(struct mmap_file *file __unused) {
+#ifndef LINK_FONT
+    unload_file(file);
+#endif
+}
+
+int
 gl_pipeline_init() {
     unsigned win_width_px = 0;
     unsigned win_height_px = 0;
+    void *font_data = malloc(0x1440000);
     struct mmap_file file;
     struct rfp_file *rfp;
 
-    xensure(load_file("unifont.rfp", &file) == 0);
-    rfp = load_rfp_file(&file);
+    xensure(font_data);
+    xensure(load_font("unifont.cfp", &file) == 0);
+    rfp = load_cfp_file(&file);
+    rfp_decompress(rfp, font_data);
     gl_id.prog = gl_compile_program(vs_src, fs_src);
     glGenVertexArrays(1, &gl_id.vao);
     glBindVertexArray(gl_id.vao);
@@ -660,9 +686,10 @@ gl_pipeline_init() {
     glBindTexture(GL_TEXTURE_2D, gl_id.tbo);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, 0x1200, 0x1200, 0, GL_RED
         , GL_UNSIGNED_BYTE
-        , rfp->data
+        , font_data
     );
-    unload_file(&file);
+    unload_font(&file);
+    free(font_data);
 
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -683,7 +710,6 @@ free_line(struct document *doc, struct line *line) {
         free(line->extern_line);
     }
 }
-
 
 void
 resize_extern_line(struct line *line, size_t size, struct document *doc) {
@@ -1061,208 +1087,6 @@ fill_glyph(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
     return j + 1;
 }
 
-int
-is_tok(uint32_t c) {
-    if (c >= 'a' && c <= 'z') {
-        return 1;
-    }
-    if (c >= 'A' && c <= 'Z') {
-        return 1;
-    }
-    if (c >= '0' && c <= '9') {
-        return 1;
-    }
-    if (c == '_') {
-        return 1;
-    }
-    return 0;
-}
-
-int
-is_digit(uint32_t c) {
-    return c >= '0' && c <= '9';
-}
-
-int
-is_hex(uint32_t c) {
-    return is_digit(c) || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f');
-}
-
-#define eat_chr(beg, end, ch) if (beg != end && *curr == ch) beg++;
-
-int
-keyword_match(uint8_t *curr, uint8_t *end, char *str, intptr_t size) {
-    if (end - curr < size) {
-        return 0;
-    }
-    if (end - curr + size > 0 && is_tok(curr[size])) {
-        return 0;
-    }
-    return memcmp(curr, str, size) == 0;
-}
-
-uint8_t *
-number_match(uint8_t *curr, uint8_t *end) {
-    uint8_t *beg = curr;
-    if (end - curr == 0) {
-        return beg;
-    }
-    if (!is_digit(*curr) && *curr != '.') {
-        return beg;
-    }
-    if (end - curr > 2 && curr[0] == '0' && curr[1] == 'x' && is_hex(curr[2])) {
-        for (curr = curr + 2; curr != end; curr++) {
-            if (is_hex(*curr)) {
-                continue;
-            }
-            if (is_tok(*curr)) {
-                return beg;
-            }
-            return curr;
-        }
-    }
-    while (curr != end && is_digit(*curr)) {
-        curr++;
-    }
-    if (curr != end && *curr == '.') {
-        curr++;
-        while (curr != end && is_digit(*curr)) {
-            curr++;
-        }
-        eat_chr(curr, end, 'f');
-        if (is_tok(*curr)) {
-            return beg;
-        }
-        return curr;
-    }
-    eat_chr(curr, end, 'u');
-    eat_chr(curr, end, 'l');
-    eat_chr(curr, end, 'l');
-    if (is_tok(*curr)) {
-        return beg;
-    }
-    return curr;
-}
-
-struct colored_world {
-    int color_pos;
-    unsigned size;
-};
-
-#define ret_keyword_match(curr, end, color, res, cxstr)         \
-    if (keyword_match(curr, end, cxstr, sizeof(cxstr) - 1)) {   \
-        res.color_pos = color;                                  \
-        res.size = sizeof(cxstr) - 1;                           \
-        return res;                                             \
-    }
-
-struct colored_world
-color_span(uint8_t *beg, uint8_t *curr, uint8_t *end) {
-    struct colored_world res = {0, 1};
-    uint8_t *keyword_end;
-
-    if (*curr <= 0x20 || *curr > 0x7e) {
-        return res;
-    }
-    if (end - curr >= 2 && memcmp(curr, "//", 2) == 0) {
-        res.size = end - curr;
-        res.color_pos = 4;
-        return res;
-    }
-    if (beg - curr == 0 && *curr == '#') {
-        res.color_pos = 1;
-        res.size = end - curr;
-        return res;
-    }
-    if (end - curr > 2 && *curr == '\'') {
-        for (keyword_end = curr + 1; keyword_end < end; keyword_end++) {
-            if (*keyword_end == '\'') {
-                break;
-            }
-        }
-        res.color_pos = 6;
-        res.size = keyword_end - curr + 1;
-        return res;
-    }
-    if (curr - 1 - beg > 0 && is_tok(curr[-1])) {
-        return res;
-    }
-    ret_keyword_match(curr, end, 2, res, "if");
-    ret_keyword_match(curr, end, 2, res, "else");
-    ret_keyword_match(curr, end, 2, res, "do");
-    ret_keyword_match(curr, end, 2, res, "for");
-    ret_keyword_match(curr, end, 2, res, "while");
-    ret_keyword_match(curr, end, 2, res, "switch");
-    ret_keyword_match(curr, end, 2, res, "case");
-    ret_keyword_match(curr, end, 2, res, "break");
-    ret_keyword_match(curr, end, 2, res, "continue");
-    ret_keyword_match(curr, end, 2, res, "goto");
-    ret_keyword_match(curr, end, 2, res, "return");
-    ret_keyword_match(curr, end, 2, res, "sizeof");
-    ret_keyword_match(curr, end, 2, res, "return");
-    ret_keyword_match(curr, end, 3, res, "static");
-    ret_keyword_match(curr, end, 3, res, "extern");
-    ret_keyword_match(curr, end, 3, res, "struct");
-    ret_keyword_match(curr, end, 3, res, "enum");
-    ret_keyword_match(curr, end, 3, res, "union");
-    ret_keyword_match(curr, end, 3, res, "const");
-    ret_keyword_match(curr, end, 3, res, "volatile");
-    ret_keyword_match(curr, end, 3, res, "char");
-    ret_keyword_match(curr, end, 3, res, "unsigned");
-    ret_keyword_match(curr, end, 3, res, "float");
-    ret_keyword_match(curr, end, 3, res, "double");
-    ret_keyword_match(curr, end, 3, res, "signed");
-    ret_keyword_match(curr, end, 3, res, "long");
-    ret_keyword_match(curr, end, 3, res, "int");
-    ret_keyword_match(curr, end, 3, res, "void");
-    ret_keyword_match(curr, end, 3, res, "short");
-    ret_keyword_match(curr, end, 3, res, "uint8_t");
-    ret_keyword_match(curr, end, 3, res, "uint16_t");
-    ret_keyword_match(curr, end, 3, res, "uint32_t");
-    ret_keyword_match(curr, end, 3, res, "uint64_t");
-    ret_keyword_match(curr, end, 3, res, "int8_t");
-    ret_keyword_match(curr, end, 3, res, "int16_t");
-    ret_keyword_match(curr, end, 3, res, "int32_t");
-    ret_keyword_match(curr, end, 3, res, "int64_t");
-    ret_keyword_match(curr, end, 3, res, "size_t");
-    ret_keyword_match(curr, end, 3, res, "ssize_t");
-    ret_keyword_match(curr, end, 3, res, "GLuint");
-    ret_keyword_match(curr, end, 3, res, "GLfloat");
-    ret_keyword_match(curr, end, 6, res, "NULL");
-
-    if (*curr == '"') {
-        end = memchr(curr + 1, '"', end - curr - 1);
-        if (end) {
-            res.size = end - curr + 1;
-            res.color_pos = 5;
-        }
-        return res;
-    }
-    if (*curr == '<') {
-        for (keyword_end = curr + 1; keyword_end < end; keyword_end++) {
-            if (is_tok(*keyword_end)
-                || *keyword_end == '/'
-                || *keyword_end == '.'
-                ) {
-                continue;
-            }
-            if (*keyword_end == '>') {
-                res.size = keyword_end + 1 - curr;
-                res.color_pos = 5;
-                return res;
-            }
-            break;
-        }
-    }
-    keyword_end = number_match(curr, end);
-    if (keyword_end != curr) {
-        res.size = keyword_end - curr;
-        res.color_pos = 6;
-        return res;
-    }
-    return res;
-}
-
 static struct color colors_table[] = {
     [0] = {0.85, 1.00, 1.00}, // light gray
     [1] = {1.00, 0.00, 0.37}, // dark pink
@@ -1282,7 +1106,7 @@ fill_line(unsigned i
     ) {
     uint8_t *line_curr = line_beg;
     unsigned j = 0;
-    struct colored_world cw = { 0, 0 };
+    struct colored_span cw = { 0, 0 };
     uint32_t glyph;
 
     if (utf8_status == UTF8_CLEAN) {
@@ -1684,7 +1508,6 @@ convert_line_external(struct line *line, struct document *doc) {
     line->alloc = line->size;
     line->extern_line = el;
 }
-
 
 void
 line_insert(size_t pos

@@ -1,3 +1,6 @@
+// This is free and unencumbered software released into the public domain.
+// For more information, see LICENSE.
+
 #include <stdlib.h>
 #include <stdio.h>
 
@@ -11,7 +14,7 @@ is_wide(uint8_t *glyph) {
 
     for (i = 0; i < 0x12; i++) {
         for (j = 11; j < 0x12; j++) {
-            if (glyph[i * 0x1200 + j] == 0) {
+            if (glyph[i * 0x1200 + j] != 0) {
                 return 1;
             }
         }
@@ -26,7 +29,7 @@ print_glyph(uint8_t *glyph) {
 
     for (i = 0; i < 0x12; i++) {
         for (j = 0; j < 0x12; j++) {
-            putchar(glyph[i * 0x1200 + j] == 0xff ? 'o' : '.' );
+            putchar(glyph[i * 0x1200 + j] == 0 ? 'o' : '.' );
         }
         putchar('\n');
     }
@@ -59,7 +62,9 @@ main(int argc, char *argv[]) {
             map[k] = is_wide(rfp->data + i * 0x12 * 0x1200 + j * 0x12) == 0;
         }
     }
-    printf("static int\nis_glyph_wide(uint32_t glyph) {\n"
+    printf("// This is free and unencumbered software released into the public"
+        " domain.\n// For more information, see LICENSE.\n\n"
+        "static int\nis_glyph_wide(uint32_t glyph) {\n"
         "    if (0) {\n        return 0;\n"
     );
     for (k = 0; k < 0x10000; k++) {
