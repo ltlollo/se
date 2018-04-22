@@ -40,5 +40,6 @@
 void *reallocarr(void **, size_t, size_t);
 void *reallocflexarr(void **, size_t, size_t, size_t );
 void memzero(void *, size_t, size_t);
+void rmemcpy(void *restrict, void *restrict, size_t);
 
 #endif // UTIL_H

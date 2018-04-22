@@ -16,13 +16,15 @@
 #include "umap.h"
 #include "fio.h"
 #include "lex.h"
-
 #include "comp.h"
 
 #define D_GLYPH     (1.0f / 256)
 #define H_GLYPH_PX  (12)
 #define V_GLYPH_PX  (16)
 #define TAB_SIZE    (8)
+#define EMPTY_DIFF  (3 + sizeof(size_t) * 2)
+#define EMPTY_SPLIT (2 + sizeof(size_t) * 2)
+#define EMPTY_AGGR  (1 + sizeof(size_t))
 
 extern char *__progname;
 
@@ -136,16 +138,17 @@ static struct diffstack {
 
 
 enum DIFF {
-    DIFF_CHARS_ADD  = 0,
-    DIFF_CHARS_DEL  = 1,
-    DIFF_LINE_SPLIT = 2,
-    DIFF_LINE_MERGE = 3,
-    DIFF_AGGREGATE  = 4,
+    DIFF_CHARS_ADD  = 'a',
+    DIFF_CHARS_DEL  = 'd',
+    DIFF_LINE_SPLIT = 's',
+    DIFF_LINE_MERGE = 'm',
+    DIFF_AGGREGATE  = 'A',
 };
 
 enum DIFF_DELIM {
     DIFF_CHAR_SEQ = '\n',
     DIFF_AGGR_SEQ = '\0',
+    DIFF_SPLIT_SEP = '\1',
 };
 
 #include "se.h"
@@ -194,30 +197,14 @@ is_same_class(uint32_t glyph_fst, uint32_t glyph_snd) {
     return s_beg == f_beg;
 }
 
-void
-diffstack_insert_chars_add(struct diffstack **ds
-    , uint8_t *str
-    , size_t size
-    , size_t x
-    , size_t y
-    ) {
-    size_t empty_diff = 3 + sizeof(size_t) * 2;
-    struct diffstack *res = *ds;
-    uint8_t *seq_new_beg = str;
-    uint8_t *seq_new_end = str + size;
-    uint8_t *seq_old_beg;
-    uint8_t *seq_old_end;
-    size_t alloc;
-    uint32_t glyph_old;
-    uint32_t glyph_new;
-    size_t old_x;
-    size_t old_y;
 
-    if (size == 0) {
-        return;
-    }
-    if (res->curr_checkpoint_end + size + empty_diff >= res->alloc) {
-        alloc = res->alloc * 2 + size + empty_diff;
+struct diffstack *
+diffstack_reserve(struct diffstack **ds, size_t size) {
+    struct diffstack *res = *ds;
+    size_t alloc;
+
+    if (res->curr_checkpoint_end + size + EMPTY_DIFF >= res->alloc) {
+        alloc = res->alloc * 2 + size + EMPTY_DIFF;
         ensure(reallocflexarr((void **) ds
             , sizeof(struct diffstack)
             , sizeof(uint8_t)
@@ -226,6 +213,33 @@ diffstack_insert_chars_add(struct diffstack **ds
         res = *ds;
         res->alloc = alloc;
     }
+    return res;
+}
+
+void
+diffstack_insert_chars_add(struct diffstack **ds
+    , uint8_t *str
+    , size_t size
+    , size_t x
+    , size_t y
+    ) {
+
+    struct diffstack *res = *ds;
+    uint8_t *seq_new_beg = str;
+    uint8_t *seq_new_end = str + size;
+    uint8_t *seq_old_beg;
+    uint8_t *seq_old_end;
+    uint32_t glyph_old;
+    uint32_t glyph_new;
+    size_t old_x;
+    size_t old_y;
+
+    if (size == 0) {
+        return;
+    }
+    res = diffstack_reserve(ds, size);
+    ensure(res);
+
     if (res->curr_checkpoint_beg != res->curr_checkpoint_end
         && res->data[res->curr_checkpoint_beg] == DIFF_CHARS_ADD
     ) {
@@ -242,22 +256,21 @@ diffstack_insert_chars_add(struct diffstack **ds
         dbg_assert(seq_old_end > seq_old_beg);
         dbg_assert(seq_old_end - seq_old_beg != 0);
         if (old_y != y || old_x + (seq_old_end - seq_old_beg) != x) {
-            goto DIFFERENT_DIFF_CLASS;
+            goto ADD_DIFFERENT_DIFF_CLASS;
         }
         glyph_old = first_glyph(seq_old_beg, seq_old_end);
         glyph_new = first_glyph(seq_new_beg, seq_new_end);
-
         if (!is_same_class(glyph_old, glyph_new)) {
-            goto DIFFERENT_DIFF_CLASS;    
+            goto ADD_DIFFERENT_DIFF_CLASS;
         }
         dbg_assert(seq_old_end[0] == DIFF_CHAR_SEQ);
         memcpy(seq_old_end, str, size);
         seq_old_end[size] = DIFF_CHAR_SEQ;
         res->curr_checkpoint_end += size;
     } else {
-DIFFERENT_DIFF_CLASS:
+ADD_DIFFERENT_DIFF_CLASS:
         res->curr_checkpoint_beg = res->curr_checkpoint_end;
-        res->curr_checkpoint_end = res->curr_checkpoint_beg + empty_diff
+        res->curr_checkpoint_end = res->curr_checkpoint_beg + EMPTY_DIFF
             + size;
         res->data[res->curr_checkpoint_beg] = DIFF_CHARS_ADD;
         memcpy(res->data + res->curr_checkpoint_beg + 1
@@ -274,11 +287,294 @@ DIFFERENT_DIFF_CLASS:
         );
         res->data[res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)]
             = DIFF_CHAR_SEQ;
-        res->data[res->curr_checkpoint_beg + empty_diff + size - 1]
+        res->data[res->curr_checkpoint_beg + EMPTY_DIFF + size - 1]
             = DIFF_CHAR_SEQ;
     }
     res->last_checkpoint_beg = res->curr_checkpoint_beg;
     res->last_checkpoint_end = res->curr_checkpoint_end;
+}
+
+struct extern_line *
+line_internal_reserve(struct line *line, size_t size, struct document *doc) {
+    struct extern_line* el = NULL;
+    size_t alloc = line->size + size;
+
+    ensure(is_line_internal(line, doc));
+
+    ensure(reallocflexarr((void **)&el
+            , sizeof(*el)
+            , alloc
+            , sizeof(*el->data)
+    ));
+    el->utf8_status = UTF8_CLEAN;
+    memcpy(el->data, line->intern_line, line->size * sizeof(*el->data));
+    line->alloc = alloc;
+    line->extern_line = el;
+    return el;
+}
+
+struct extern_line *
+line_external_reserve(struct line *line, size_t size, struct document *doc) {
+    struct extern_line* el = line->extern_line;
+    size_t alloc;
+
+    ensure(!is_line_internal(line, doc));
+
+    if (line->size + size > line->alloc) {
+        alloc = line->alloc + line->alloc / 2 + size;
+        ensure(reallocflexarr((void **)&el
+                , sizeof(*el)
+                , alloc
+                , sizeof(*el->data)
+        ));
+        line->alloc = alloc;
+        line->extern_line = el;
+    }
+    return el;
+}
+
+struct extern_line *
+line_reserve(struct line *line, size_t size, struct document *doc) {
+
+    if (is_line_internal(line, doc)) {
+        return line_internal_reserve(line, size, doc);
+    } else {
+        return line_external_reserve(line, size, doc);
+    }
+}
+
+void
+diffstack_undo_chars_del(uint8_t *diff_beg
+    , uint8_t *diff_end
+    , struct document *doc
+    ) {
+    size_t x;
+    size_t y;
+    uint8_t *seq_beg;
+    uint8_t *seq_end;
+    size_t seq_size;
+    struct line_metadata *lm;
+    uint8_t *restore_seq_beg;
+    uint8_t *restore_seq_end;
+
+    dbg_assert(diff_end > diff_beg + EMPTY_DIFF);
+    dbg_assert(*diff_beg == DIFF_CHARS_DEL);
+
+    memcpy(&x, diff_beg + 1, sizeof(size_t));
+    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
+
+    seq_beg = diff_beg + 2 + 2 * sizeof(size_t);
+    seq_end = diff_end - 1;
+    seq_size = seq_end - seq_beg;
+
+    dbg_assert(seq_end > seq_beg);
+
+    lm = doc->lines + y;
+    ensure(!is_line_internal(&lm->line, doc));
+
+    line_external_reserve(&lm->line, seq_size, doc);
+
+
+    restore_seq_end = lm->line.extern_line->data + x;
+    restore_seq_beg = restore_seq_end - seq_size;
+
+    memmove(restore_seq_end, restore_seq_beg, lm->line.size);
+    rmemcpy(restore_seq_beg, seq_beg, seq_size);
+
+    lm->line.size += seq_size;
+}
+
+void
+diffstack_undo_chars_add(uint8_t *diff_beg
+    , uint8_t *diff_end
+    , struct document *doc
+    ) {
+    size_t x;
+    size_t y;
+    uint8_t *seq_beg;
+    uint8_t *seq_end;
+    size_t seq_size;
+    struct line_metadata *lm;
+    uint8_t *restore_seq_beg;
+    uint8_t *restore_seq_end;
+
+    dbg_assert(diff_end > diff_beg + EMPTY_DIFF);
+    dbg_assert(*diff_beg == DIFF_CHARS_ADD);
+
+    memcpy(&x, diff_beg + 1, sizeof(size_t));
+    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
+
+    seq_beg = diff_beg + 2 + 2 * sizeof(size_t);
+    seq_end = diff_end - 1;
+    seq_size = seq_end - seq_beg;
+
+    dbg_assert(seq_end > seq_beg);
+
+    lm = doc->lines + y;
+    ensure(!is_line_internal(&lm->line, doc));
+
+    restore_seq_beg = lm->line.extern_line->data + x;
+    restore_seq_end = restore_seq_beg + seq_size;
+
+    memmove(restore_seq_beg, restore_seq_end, lm->line.size);
+
+    dbg_assert(lm->line.size >= seq_size);
+    lm->line.size -= seq_size;
+}
+
+void
+diffstack_insert_chars_del(struct diffstack **ds
+    , uint8_t *str
+    , size_t size
+    , size_t x
+    , size_t y
+    ) {
+    struct diffstack *res = *ds;
+    size_t x_end = x + size;;
+    uint8_t *seq_new_beg = str;
+    uint8_t *seq_new_end = str + size;
+    uint8_t *seq_old_beg;
+    uint8_t *seq_old_end;
+    uint32_t glyph_old;
+    uint32_t glyph_new;
+    size_t old_x;
+    size_t old_y;
+
+    if (size == 0) {
+        return;
+    }
+    res = diffstack_reserve(ds, size);
+    ensure(res);
+
+    if (res->curr_checkpoint_beg != res->curr_checkpoint_end
+        && res->data[res->curr_checkpoint_beg] == DIFF_CHARS_DEL
+    ) {
+        seq_old_beg = res->data + res->curr_checkpoint_beg + 2
+            + sizeof(size_t) * 2;
+        seq_old_end = res->data + res->curr_checkpoint_end - 1;
+        memcpy(&old_x, res->data + res->curr_checkpoint_beg + 1
+            , sizeof(size_t)
+        );
+        memcpy(&old_y, res->data + res->curr_checkpoint_beg + 1
+            + sizeof(size_t)
+            , sizeof(size_t)
+        );
+        dbg_assert(seq_old_end > seq_old_beg);
+        dbg_assert(seq_old_end - seq_old_beg != 0);
+        if (old_y != y
+            || old_x + seq_old_end < seq_old_beg
+            || old_x - (seq_old_end - seq_old_beg) != x_end
+        ) {
+            goto DEL_DIFFERENT_DIFF_CLASS;
+        }
+        glyph_old = first_glyph(seq_old_beg, seq_old_end);
+        glyph_new = first_glyph(seq_new_beg, seq_new_end);
+        if (!is_same_class(glyph_old, glyph_new)) {
+            goto DEL_DIFFERENT_DIFF_CLASS;
+        }
+        dbg_assert(seq_old_end[0] == DIFF_CHAR_SEQ);
+        rmemcpy(seq_old_end, str, size);
+        seq_old_end[size] = DIFF_CHAR_SEQ;
+        res->curr_checkpoint_end += size;
+    } else {
+DEL_DIFFERENT_DIFF_CLASS:
+        res->curr_checkpoint_beg = res->curr_checkpoint_end;
+        res->curr_checkpoint_end = res->curr_checkpoint_beg + EMPTY_DIFF
+            + size;
+        res->data[res->curr_checkpoint_beg] = DIFF_CHARS_DEL;
+        memcpy(res->data + res->curr_checkpoint_beg + 1
+            , &x_end
+            , sizeof(size_t)
+        );
+        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
+            , &y
+            , sizeof(size_t)
+        );
+        rmemcpy(res->data + res->curr_checkpoint_beg + 2 + 2 * sizeof(size_t)
+            , str
+            , size
+        );
+        res->data[res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)]
+            = DIFF_CHAR_SEQ;
+        res->data[res->curr_checkpoint_beg + EMPTY_DIFF + size - 1]
+            = DIFF_CHAR_SEQ;
+    }
+    res->last_checkpoint_beg = res->curr_checkpoint_beg;
+    res->last_checkpoint_end = res->curr_checkpoint_end;
+}
+
+uint8_t *
+diffstack_curr_mvback(uint8_t *curr_end) {
+    uint8_t *seq_curr;
+    size_t aggr_size;
+    size_t i;
+
+    switch (curr_end[-1]) {
+        case DIFF_SPLIT_SEP:
+            return curr_end - EMPTY_SPLIT;
+        case DIFF_CHAR_SEQ:
+            seq_curr = curr_end - 2;
+            while (*seq_curr != DIFF_CHAR_SEQ) {
+                seq_curr--;
+            }
+            return seq_curr - (sizeof(size_t) * 2 + 1);
+        case DIFF_AGGR_SEQ:
+            curr_end -= EMPTY_AGGR;
+            memcpy(&aggr_size, curr_end, sizeof(aggr_size));
+            for (i = 0; i < aggr_size; i++) {
+                curr_end = diffstack_curr_mvback(curr_end);
+                ensure(curr_end);
+            }
+            return curr_end - EMPTY_AGGR;
+        default:
+            dbg_assert(0);
+            return NULL;
+    }
+}
+
+int
+diffstack_undo(struct diffstack *ds, struct document *doc) {
+    uint8_t *diff_beg = ds->data + ds->curr_checkpoint_beg;
+    uint8_t *diff_end = ds->data + ds->curr_checkpoint_end;
+
+    if (diff_beg == diff_end) {
+        return -1;
+    }
+    switch (*diff_beg) {
+        case DIFF_CHARS_ADD:
+            diffstack_undo_chars_add(diff_beg, diff_end, doc);
+            if (ds->curr_checkpoint_beg != 0) {
+                diff_end = diff_beg;
+                diff_beg = diffstack_curr_mvback(diff_end);
+                ensure(diff_beg >= ds->data);
+
+                ds->curr_checkpoint_beg = diff_beg - ds->data;
+                ds->curr_checkpoint_end = diff_end - ds->data;
+            } else {
+                ds->curr_checkpoint_end = 0;
+            }
+            break;
+        case DIFF_CHARS_DEL:
+            diffstack_undo_chars_del(diff_beg, diff_end, doc);
+            if (ds->curr_checkpoint_beg != 0) {
+                diff_end = diff_beg;
+                diff_beg = diffstack_curr_mvback(diff_end);
+                ensure(diff_beg >= ds->data);
+
+                ds->curr_checkpoint_beg = diff_beg - ds->data;
+                ds->curr_checkpoint_end = diff_end - ds->data;
+            } else {
+                ds->curr_checkpoint_end = 0;
+            }
+            break;
+            break;
+        case DIFF_LINE_SPLIT:
+        case DIFF_LINE_MERGE:
+        case DIFF_AGGREGATE:
+        default:
+            ensure(0);
+    }
+    return 0;
 }
 
 int
@@ -297,8 +593,9 @@ init_diffstack(struct diffstack **ds, size_t alloc) {
 }
 
 void
-render(void) {
+window_render(void) {
     unsigned size = win.width * win.height;
+
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLES, 0, 6 * size);
     glutSwapBuffers();
@@ -355,8 +652,9 @@ resize_display_matrix(int win_width_px, int win_height_px) {
 }
 
 void
-resize(int win_width_px, int win_height_px) {
+window_resize(int win_width_px, int win_height_px) {
     glViewport(0, 0, win_width_px, win_height_px);
+    doc->y_window_line_off = 0;
     resize_display_matrix(win_width_px, win_height_px);
 }
 
@@ -401,6 +699,16 @@ key_input(unsigned char key, int x __unused, int y __unused) {
     switch (key) {
         case 'd':
             line_insert(0, doc->lines, doc, &win, "asd", 3);
+            fill_screen(&doc, &win);
+            gl_buffers_upload(&win);
+            break;
+        case 's':
+            line_remove(0, doc->lines, doc, &win, 3);
+            fill_screen(&doc, &win);
+            gl_buffers_upload(&win);
+            break;
+        case 'u':
+            diffstack_undo(diff, doc);
             fill_screen(&doc, &win);
             gl_buffers_upload(&win);
             break;
@@ -449,8 +757,8 @@ key_special_input(int key, int x __unused, int y __unused) {
 
 int
 gl_check_program(GLuint id, int status) {
-    static char info[2048];
-    int len = 2048;
+    static char info[1024];
+    int len = 1024;
     GLint ok;
 
     if (status == GL_COMPILE_STATUS) {
@@ -463,7 +771,7 @@ gl_check_program(GLuint id, int status) {
         glGetProgramiv(id, status, &ok);
         if (ok == GL_FALSE) {
             glGetProgramInfoLog(id, len, &len, info);
-        }    
+        }
     }
     if (ok == GL_FALSE) {
         fprintf(stderr, "GL_ERROR :\n%s\n", info);
@@ -528,8 +836,8 @@ win_init(int argc, char *argv[]) {
     glutInit(&argc, argv);
     glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA);
     glutCreateWindow(window_title);
-    glutReshapeFunc(resize);
-    glutDisplayFunc(render);
+    glutReshapeFunc(window_resize);
+    glutDisplayFunc(window_render);
     glutKeyboardFunc(key_input);
     glutSpecialFunc(key_special_input);
     xensure(glewInit() == GLEW_OK);
@@ -613,32 +921,13 @@ gen_display_matrix(struct window *win, unsigned width, unsigned height) {
     memzero(win->glyph_mesh, 1, glyph_mesh_sz + font_color_sz);
 }
 
-void
-colorful_test(struct window *win) {
-    float r, g, b;
-    unsigned i, j;
-
-    for (i = 0; i < win->scrollback_size; i++) {
-        for (j = 0; j < win->width; j++) {
-            r = sin(1 * i * M_PI / win->scrollback_size);
-            g = sin(2 * i * M_PI / win->scrollback_size + M_PI);
-            b = cos(2 * j * M_PI / win->width);
-            set_quad_color(win->font_color + i * win->width + j
-                , (r * r * 0.95 + 0.15) * .25
-                , (g * g * 0.95 + 0.15) * 1.0
-                , (b * b * 0.95 + 0.15) * 1.0
-            );
-        }
-    }
-}
-
 int
 load_font(const char *fname __unused, struct mmap_file *file) {
 #ifdef LINK_FONT
-    extern const char _binary_unifont_cfp_start;
-    extern const char _binary_unifont_cfp_end;
-    file->size = &_binary_unifont_cfp_end - &_binary_unifont_cfp_start;
-    file->data = (void *)&_binary_unifont_cfp_start;
+    extern const char _binary_ext_unifont_cfp_start;
+    extern const char _binary_ext_unifont_cfp_end;
+    file->size = &_binary_ext_unifont_cfp_end - &_binary_ext_unifont_cfp_start;
+    file->data = (void *)&_binary_ext_unifont_cfp_start;
     return 0;
 #else
     return load_file(fname, file);
@@ -889,7 +1178,7 @@ is_line_internal(struct line *line, struct document *doc) {
 int
 is_line_utf8(struct line *line, struct document *doc) {
     if (is_line_internal(line, doc)) {
-        return 1;    
+        return 1;
     }
     return line->extern_line->utf8_status == UTF8_CLEAN;
 }
@@ -1106,15 +1395,21 @@ fill_line(unsigned i
     ) {
     uint8_t *line_curr = line_beg;
     unsigned j = 0;
-    struct colored_span cw = { 0, 0 };
+    float def_r = colors_table[0].r;
+    float def_g = colors_table[0].g;
+    float def_b = colors_table[0].b;
+    struct colored_span cw = { .color_pos = 0, .size = 0 };
+    struct quad_color *qc_curr;
     uint32_t glyph;
+
 
     if (utf8_status == UTF8_CLEAN) {
         while (line_curr != line_end) {
             if (cw.size == 0) {
                 cw = color_span(line_beg, line_curr, line_end);
             }
-            set_quad_color(win->font_color + i * win->width + j
+            qc_curr = win->font_color + i * win->width + j;
+            set_quad_color(qc_curr
                 , colors_table[cw.color_pos].r
                 , colors_table[cw.color_pos].g
                 , colors_table[cw.color_pos].b
@@ -1133,11 +1428,8 @@ fill_line(unsigned i
         }
     } else {
         while (line_curr != line_end) {
-            set_quad_color(win->font_color + i * win->width + j
-                , colors_table[0].r
-                , colors_table[0].g
-                , colors_table[0].b
-            );
+            qc_curr = win->font_color + i * win->width + j;
+            set_quad_color(qc_curr, def_r, def_g, def_b);
             j = fill_glyph(i, j, *line_curr++, win);
             if (j == win->width) {
                 j = 0;
@@ -1149,11 +1441,8 @@ fill_line(unsigned i
         }
     }
     while (j < win->width) {
-        set_quad_color(win->font_color + i * win->width + j
-            , colors_table[0].r
-            , colors_table[0].g
-            , colors_table[0].b
-        );
+        qc_curr = win->font_color + i * win->width + j;
+        set_quad_color(qc_curr, def_r, def_g, def_b);
         fill_glyph(i, j, 0x20, win);
         j++;
     }
@@ -1299,7 +1588,7 @@ fill_screen(struct document **doc, struct window *win) {
     win_lines = lm->win_lines - res->y_window_line_off;
 
     ensure(lm <= lm_end);
-    
+
     if (!is_fully_loaded(res)) {
         lm_curr = lm + 1;
         while (lm_curr < lm_end) {
@@ -1309,7 +1598,7 @@ fill_screen(struct document **doc, struct window *win) {
             if (lm_curr->win_lines == 0) {
                 recompute_win_lines_metadata(lm_curr, *doc, win);
             }
-            win_lines += lm_curr->win_lines;    
+            win_lines += lm_curr->win_lines;
             lm_curr++;
         }
         if (win_lines < win->scrollback_size) {
@@ -1403,7 +1692,7 @@ move_scrollback_up(struct window *win, struct document **docp) {
         , doc->y_window_line_off * win->width
     );
     doc->x_off = x_off_winlines - begin_line_metadata(lm, doc);
-    
+
     win->scrollback_pos--;
     fill_screen(docp, win);
 }
@@ -1491,12 +1780,12 @@ move_scrollback(struct window *win
     gl_buffers_upload(win);
 }
 
-void
+struct extern_line *
 convert_line_external(struct line *line, struct document *doc) {
     struct extern_line* el = NULL;
 
     if (!is_line_internal(line, doc)) {
-        return;
+        return line->extern_line;
     }
     ensure(reallocflexarr((void **)&el
             , sizeof(*el)
@@ -1507,6 +1796,7 @@ convert_line_external(struct line *line, struct document *doc) {
     memcpy(el->data, line->intern_line, line->size * sizeof(*el->data));
     line->alloc = line->size;
     line->extern_line = el;
+    return el;
 }
 
 void
@@ -1520,26 +1810,9 @@ line_insert(size_t pos
     struct line *line = &lm->line;
     uint8_t *data_curr = data;
     uint8_t *data_end = data + size;
-    size_t alloc;
-    struct extern_line *el;
-    uint8_t *el_curr;
-    uint8_t *el_end;
-
-    convert_line_external(line, doc);
-    el = line->extern_line;
-
-    if (line->size + size > line->alloc) {
-        alloc = line->size + line->size / 2 + size;
-        ensure(reallocflexarr((void **)&el
-                , sizeof(*el)
-                , alloc
-                , sizeof(*el->data)
-        ));
-        line->alloc = alloc;
-        line->extern_line = el;
-    }
-    el_curr = el->data + pos;
-    el_end = el->data + line->size;
+    struct extern_line *el = line_reserve(line, size, doc);
+    uint8_t *el_curr = el->data + pos;
+    uint8_t *el_end = el->data + line->size;
 
     if (next_utf8_or_null(el_curr, el_end) == NULL) {
         el->utf8_status = UTF8_DIRTY;
@@ -1558,6 +1831,37 @@ line_insert(size_t pos
     diffstack_insert_chars_add(&diff, data, size, pos, lm - doc->lines);
 }
 
+void
+line_remove(size_t pos
+    , struct line_metadata *lm
+    , struct document *doc
+    , struct window *win
+    , size_t size
+    ) {
+    struct line *line = &lm->line;
+    struct extern_line *el = convert_line_external(line, doc);
+    uint8_t *el_curr = el->data + pos;
+    uint8_t *el_end = el->data + line->size;
+    uint8_t *data_curr = el_curr;
+    uint8_t *data_end = el_curr + size;
+    size_t rhs_size = el_end - el_curr;
+
+    ensure(line->size >= size);
+    ensure(pos <= line->size && pos + size <= line->size);
+
+    if (next_utf8_or_null(data_curr, el_end) == NULL) {
+        el->utf8_status = UTF8_DIRTY;
+    }
+    if (next_utf8_or_null(data_end, el_end) == NULL) {
+        el->utf8_status = UTF8_DIRTY;
+    }
+    diffstack_insert_chars_del(&diff, el_curr, size, pos, lm - doc->lines);
+    memmove(data_curr, data_end, rhs_size);
+    line->size -= size;
+
+    recompute_win_lines_metadata(lm, doc, win);
+}
+
 int
 main(int argc, char *argv[]) {
     char *fname = "se.c";
@@ -1565,9 +1869,8 @@ main(int argc, char *argv[]) {
     if (argc - 1 > 0) {
         fname = argv[1];
     }
-    ensure(init_diffstack(&diff, 0x1000) == 0);
-    ensure(init_doc(fname, &doc) == 0);
-
+    xensure(init_diffstack(&diff, 0x1000) == 0);
+    xensure(init_doc(fname, &doc) == 0);
     xensure(win_init(argc, argv) == 0);
     xensure(gl_pipeline_init() == 0);
 

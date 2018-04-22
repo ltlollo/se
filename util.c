@@ -43,3 +43,14 @@ void
 memzero(void *arr, size_t nmemb, size_t size) {
     memset(arr, 0, nmemb * size);
 }
+
+void
+rmemcpy(void *restrict dst, void *restrict src, size_t size) {
+    char *restrict beg = dst;
+    char *restrict end = dst + size;
+    char *restrict cpi = src + size - 1;;
+
+    while (beg != end) {
+        *beg++ = *cpi--;
+    }
+}

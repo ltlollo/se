@@ -1,0 +1,12 @@
+tags
+ext/*.bmp
+ext/*.rfp
+ext/*.cfp
+ext/*.o
+*.s
+.*.swp
+test*
+ext/rfp
+ext/cfp
+ext/umap
+se

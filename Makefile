@@ -1,6 +1,5 @@
-LDFLAGS			+= `pkg-config --libs glew freeglut` -lm
-CFLAGS			:= -std=c11 `pkg-config --cflags glew freeglut` -Wall -Wextra \
-	-Wno-pointer-sign
+LDFLAGS			+= -lGL -lGLEW -lGLU -lglut
+CFLAGS			:= -std=c11  -Wall -Wextra -Wno-pointer-sign
 DEBUG_CFLAGS	:= ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
 RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 -DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
@@ -8,30 +7,28 @@ RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 all: umap font
 	@$(SH) ./ext/gen_headers se.c > se.h
 	@ctags *.c
-	$(CC) -DLINK_FONT -D_GNU_SOURCE $(LDFLAGS) $(DEBUG_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c unifont.o -o se
-	$(CC) -D_GNU_SOURCE $(LDFLAGS) $(DEBUG_CFLAGS) \
-		rfp.c util.c fio.c -o rfp
-	$(CC) -D_GNU_SOURCE $(LDFLAGS) $(DEBUG_CFLAGS) \
-		cfp.c util.c fio.c comp.c -o cfp
+	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
+		se.c lex.c util.c fio.c comp.c ./ext/unifont.o $(LDFLAGS) -o se
 
 release: umap font
-	@$(SH) ./gen_headers se.c > se.h
-	$(CC) -DLINK_FONT -D_GNU_SOURCE $(LDFLAGS) $(RELEASE_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c unifont.o -o se
-	$(CC) -D_GNU_SOURCE $(LDFLAGS) $(RELEASE_CFLAGS) \
-		rfp.c util.c fio.c -o rfp
-	$(CC) -D_GNU_SOURCE $(LDFLAGS) $(RELEASE_CFLAGS) \
-		cfp.c util.c fio.c comp.c -o cfp
+	@$(SH) ./ext/gen_headers se.c > se.h
+	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(RELEASE_CFLAGS) \
+		se.c lex.c util.c fio.c comp.c ext/unifont.o $(LDFLAGS) -o se
 
 umap:
-	$(CC) -D_GNU_SOURCE $(LDFLAGS) $(RELEASE_CFLAGS) \
-		umap.c util.c fio.c -o umap
-	$(SH) ./umap > umap.h
+	$(CC) -D_GNU_SOURCE  $(RELEASE_CFLAGS) \
+		umap.c util.c fio.c $(LDFLAGS) -o ext/umap
+	$(SH) ./ext/umap ext/unifont.rfp > umap.h
 
 font:
-	ld -r -b binary unifont.cfp -o unifont.o
+	$(CC) -D_GNU_SOURCE  $(RELEASE_CFLAGS) \
+		rfp.c util.c fio.c $(LDFLAGS) -o ext/rfp
+	$(CC) -D_GNU_SOURCE  $(RELEASE_CFLAGS) \
+		cfp.c util.c fio.c comp.c $(LDFLAGS) -o ext/cfp
+	$(SH) ./ext/rfp ext/unifont-10.0.07.bmp ext/unifont.rfp
+	$(SH) ./ext/cfp ext/unifont.rfp ext/unifont.cfp
+	ld -r -b binary ext/unifont.cfp -o ext/unifont.o
 
 clean:
-	$(RM) se rfp umap unifont.o
+	$(RM) se ext/rfp ext/cfp ext/umap ext/unifont.o
 
