@@ -12,6 +12,12 @@
 #include <string.h>
 #include <math.h>
 
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
 #include "util.h"
 #include "umap.h"
 #include "fio.h"
@@ -23,8 +29,8 @@
 #define V_GLYPH_PX  (16)
 #define TAB_SIZE    (8)
 #define EMPTY_DIFF  (3 + sizeof(size_t) * 2)
-#define EMPTY_SPLIT (2 + sizeof(size_t) * 2)
-#define EMPTY_AGGR  (1 + sizeof(size_t))
+#define SIZE_SPLIT  (2 + sizeof(size_t) * 3)
+#define SIZE_AGGR   (1 + sizeof(size_t))
 
 extern char *__progname;
 
@@ -123,7 +129,6 @@ static struct document {
     size_t y_line_off;
     size_t y_window_line_off;
     size_t x_off;
-    struct extern_line *must_leak;
     struct line_metadata lines[];
 } *doc;
 
@@ -197,7 +202,6 @@ is_same_class(uint32_t glyph_fst, uint32_t glyph_snd) {
     return s_beg == f_beg;
 }
 
-
 struct diffstack *
 diffstack_reserve(struct diffstack **ds, size_t size) {
     struct diffstack *res = *ds;
@@ -217,13 +221,145 @@ diffstack_reserve(struct diffstack **ds, size_t size) {
 }
 
 void
+diffstack_insert_merge(struct diffstack **ds
+    , struct line_metadata *lm
+    , size_t size
+    , size_t x
+    , size_t y
+    ) {
+    struct diffstack *res = *ds;
+    size_t old_x;
+    size_t old_y;
+    size_t old_size;
+
+    if (size == 0) {
+        return;
+    }
+    res = diffstack_reserve(ds, SIZE_SPLIT);
+    ensure(res);
+
+    dbg_assert(x == 0 && y != 0);
+
+    if (res->curr_checkpoint_beg != res->curr_checkpoint_end
+        && res->data[res->curr_checkpoint_beg] == DIFF_LINE_MERGE
+    ) {
+        memcpy(&old_x
+            , res->data + res->curr_checkpoint_beg + 1
+            , sizeof(size_t)
+        );
+        memcpy(&old_y
+            , res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
+            , sizeof(size_t)
+        );
+        memcpy(&old_size
+            , res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
+            , sizeof(size_t)
+        );
+        if (old_x != 0 || old_y != y) {
+            goto MERGE_DIFFERENT_DIFF_CLASS;
+        }
+        x = lm[-1].line.size;
+        y = y - 1;
+        size += old_size;
+        memcpy(res->data + res->curr_checkpoint_beg + 1
+            , &x
+            , sizeof(size_t)
+        );
+        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
+            , &y
+            , sizeof(size_t)
+        );
+        memcpy(res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
+            , &size
+            , sizeof(size_t)
+        );
+    } else {
+MERGE_DIFFERENT_DIFF_CLASS:
+        res->curr_checkpoint_beg = res->curr_checkpoint_end;
+        res->curr_checkpoint_end = res->curr_checkpoint_beg + SIZE_SPLIT;
+        res->data[res->curr_checkpoint_beg] = DIFF_LINE_MERGE;
+        memcpy(res->data + res->curr_checkpoint_beg + 1, &x, sizeof(size_t));
+        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
+            , &y
+            , sizeof(size_t)
+        );
+        memcpy(res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
+            , &size
+            , sizeof(size_t)
+        );
+        res->data[res->curr_checkpoint_end - 1] = DIFF_SPLIT_SEP;
+    }
+    res->last_checkpoint_beg = res->curr_checkpoint_beg;
+    res->last_checkpoint_end = res->curr_checkpoint_end;
+}
+
+void
+diffstack_insert_split(struct diffstack **ds
+    , size_t size
+    , size_t x
+    , size_t y
+    ) {
+    struct diffstack *res = *ds;
+    size_t old_x;
+    size_t old_y;
+    size_t old_size;
+
+    if (size == 0) {
+        return;
+    }
+    res = diffstack_reserve(ds, SIZE_SPLIT);
+    ensure(res);
+
+    if (res->curr_checkpoint_beg != res->curr_checkpoint_end
+        && res->data[res->curr_checkpoint_beg] == DIFF_LINE_SPLIT
+    ) {
+        memcpy(&old_x
+            , res->data + res->curr_checkpoint_beg + 1
+            , sizeof(size_t)
+        );
+        memcpy(&old_y
+            , res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
+            , sizeof(size_t)
+        );
+        memcpy(&old_size
+            , res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
+            , sizeof(size_t)
+        );
+        if (x != 0 || old_x != 0 || old_y + old_size != y) {
+            goto SPLIT_DIFFERENT_DIFF_CLASS;
+        }
+        old_size += size;
+        memcpy(res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
+            , &old_size
+            , sizeof(size_t)
+        );
+    } else {
+SPLIT_DIFFERENT_DIFF_CLASS:
+        res->curr_checkpoint_beg = res->curr_checkpoint_end;
+        res->curr_checkpoint_end = res->curr_checkpoint_beg + SIZE_SPLIT;
+        res->data[res->curr_checkpoint_beg] = DIFF_LINE_SPLIT;
+        memcpy(res->data + res->curr_checkpoint_beg + 1, &x, sizeof(size_t));
+        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
+            , &y
+            , sizeof(size_t)
+        );
+        memcpy(res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
+            , &size
+            , sizeof(size_t)
+        );
+        res->data[res->curr_checkpoint_end - 1] = DIFF_SPLIT_SEP;
+    }
+    res->last_checkpoint_beg = res->curr_checkpoint_beg;
+    res->last_checkpoint_end = res->curr_checkpoint_end;
+}
+
+void
 diffstack_insert_chars_add(struct diffstack **ds
     , uint8_t *str
     , size_t size
     , size_t x
     , size_t y
     ) {
-
     struct diffstack *res = *ds;
     uint8_t *seq_new_beg = str;
     uint8_t *seq_new_end = str + size;
@@ -249,8 +385,8 @@ diffstack_insert_chars_add(struct diffstack **ds
         memcpy(&old_x, res->data + res->curr_checkpoint_beg + 1
             , sizeof(size_t)
         );
-        memcpy(&old_y, res->data + res->curr_checkpoint_beg + 1
-            + sizeof(size_t)
+        memcpy(&old_y
+            , res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
             , sizeof(size_t)
         );
         dbg_assert(seq_old_end > seq_old_beg);
@@ -273,10 +409,7 @@ ADD_DIFFERENT_DIFF_CLASS:
         res->curr_checkpoint_end = res->curr_checkpoint_beg + EMPTY_DIFF
             + size;
         res->data[res->curr_checkpoint_beg] = DIFF_CHARS_ADD;
-        memcpy(res->data + res->curr_checkpoint_beg + 1
-            , &x
-            , sizeof(size_t)
-        );
+        memcpy(res->data + res->curr_checkpoint_beg + 1, &x, sizeof(size_t));
         memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
             , &y
             , sizeof(size_t)
@@ -295,58 +428,71 @@ ADD_DIFFERENT_DIFF_CLASS:
 }
 
 struct extern_line *
-line_internal_reserve(struct line *line, size_t size, struct document *doc) {
-    struct extern_line* el = NULL;
-    size_t alloc = line->size + size;
-
-    ensure(is_line_internal(line, doc));
-
-    ensure(reallocflexarr((void **)&el
-            , sizeof(*el)
-            , alloc
-            , sizeof(*el->data)
-    ));
-    el->utf8_status = UTF8_CLEAN;
-    memcpy(el->data, line->intern_line, line->size * sizeof(*el->data));
-    line->alloc = alloc;
-    line->extern_line = el;
-    return el;
-}
-
-struct extern_line *
-line_external_reserve(struct line *line, size_t size, struct document *doc) {
-    struct extern_line* el = line->extern_line;
-    size_t alloc;
-
-    ensure(!is_line_internal(line, doc));
-
-    if (line->size + size > line->alloc) {
-        alloc = line->alloc + line->alloc / 2 + size;
-        ensure(reallocflexarr((void **)&el
-                , sizeof(*el)
-                , alloc
-                , sizeof(*el->data)
-        ));
-        line->alloc = alloc;
-        line->extern_line = el;
-    }
-    return el;
-}
-
-struct extern_line *
-line_reserve(struct line *line, size_t size, struct document *doc) {
+reserve_line(struct line *line, size_t size, struct document *doc) {
 
     if (is_line_internal(line, doc)) {
-        return line_internal_reserve(line, size, doc);
+        return reserve_intern_line(line, size, doc);
     } else {
-        return line_external_reserve(line, size, doc);
+        return reserve_extern_line(line, size, doc);
     }
+}
+
+void
+merge_lines(struct line_metadata *lm_fst
+    , struct line_metadata *lm_snd
+    , struct document *doc
+    ) {
+    size_t s_size = lm_snd->line.size;
+    size_t f_size = lm_fst->line.size;
+    struct extern_line *el = reserve_line(&lm_fst->line, s_size, doc);
+
+    if (!is_line_internal(&lm_snd->line, doc)) {
+        el->utf8_status |= lm_snd->line.extern_line->utf8_status;
+    }
+    memcpy(el->data + f_size, begin_line_metadata(lm_snd, doc), s_size);
+    lm_fst->line.size += s_size;
+}
+
+void
+diffstack_undo_line_split(uint8_t *diff_beg
+    , uint8_t *diff_end
+    , struct document *doc
+    , struct window *win
+    ) {
+    size_t x;
+    size_t y;
+    size_t n;
+    struct line_metadata *lm_fst;
+    struct line_metadata *lm_snd;
+    struct line_metadata *lm_curr;
+
+    dbg_assert(diff_end == diff_beg + SIZE_SPLIT);
+    dbg_assert(*diff_beg == DIFF_LINE_SPLIT);
+
+    memcpy(&x, diff_beg + 1, sizeof(size_t));
+    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
+    memcpy(&n, diff_beg + 1 + 2 * sizeof(size_t), sizeof(size_t));
+
+    ensure(n != 0);
+
+    lm_fst = doc->lines + y;
+    lm_snd = lm_fst + n;
+
+    merge_lines(lm_fst, lm_snd, doc);
+
+    for (lm_curr = lm_fst + 1; lm_curr != lm_snd + 1; lm_curr++) {
+        free_line(doc, &lm_curr->line);
+    }
+    memcpy(lm_fst + 1, lm_snd + 1, (doc->loaded_size + 1 - n) * sizeof(*lm_fst));
+    recompute_win_lines_metadata(lm_fst, doc, win);
+    doc->loaded_size -= n;
 }
 
 void
 diffstack_undo_chars_del(uint8_t *diff_beg
     , uint8_t *diff_end
     , struct document *doc
+    , struct window *win
     ) {
     size_t x;
     size_t y;
@@ -372,8 +518,7 @@ diffstack_undo_chars_del(uint8_t *diff_beg
     lm = doc->lines + y;
     ensure(!is_line_internal(&lm->line, doc));
 
-    line_external_reserve(&lm->line, seq_size, doc);
-
+    reserve_extern_line(&lm->line, seq_size, doc);
 
     restore_seq_end = lm->line.extern_line->data + x;
     restore_seq_beg = restore_seq_end - seq_size;
@@ -382,12 +527,15 @@ diffstack_undo_chars_del(uint8_t *diff_beg
     rmemcpy(restore_seq_beg, seq_beg, seq_size);
 
     lm->line.size += seq_size;
+
+    recompute_win_lines_metadata(lm, doc, win);
 }
 
 void
 diffstack_undo_chars_add(uint8_t *diff_beg
     , uint8_t *diff_end
     , struct document *doc
+    , struct window *win
     ) {
     size_t x;
     size_t y;
@@ -420,6 +568,8 @@ diffstack_undo_chars_add(uint8_t *diff_beg
 
     dbg_assert(lm->line.size >= seq_size);
     lm->line.size -= seq_size;
+
+    recompute_win_lines_metadata(lm, doc, win);
 }
 
 void
@@ -455,8 +605,8 @@ diffstack_insert_chars_del(struct diffstack **ds
         memcpy(&old_x, res->data + res->curr_checkpoint_beg + 1
             , sizeof(size_t)
         );
-        memcpy(&old_y, res->data + res->curr_checkpoint_beg + 1
-            + sizeof(size_t)
+        memcpy(&old_y
+            , res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
             , sizeof(size_t)
         );
         dbg_assert(seq_old_end > seq_old_beg);
@@ -511,7 +661,7 @@ diffstack_curr_mvback(uint8_t *curr_end) {
 
     switch (curr_end[-1]) {
         case DIFF_SPLIT_SEP:
-            return curr_end - EMPTY_SPLIT;
+            return curr_end - SIZE_SPLIT;
         case DIFF_CHAR_SEQ:
             seq_curr = curr_end - 2;
             while (*seq_curr != DIFF_CHAR_SEQ) {
@@ -519,13 +669,13 @@ diffstack_curr_mvback(uint8_t *curr_end) {
             }
             return seq_curr - (sizeof(size_t) * 2 + 1);
         case DIFF_AGGR_SEQ:
-            curr_end -= EMPTY_AGGR;
+            curr_end -= SIZE_AGGR;
             memcpy(&aggr_size, curr_end, sizeof(aggr_size));
             for (i = 0; i < aggr_size; i++) {
                 curr_end = diffstack_curr_mvback(curr_end);
                 ensure(curr_end);
             }
-            return curr_end - EMPTY_AGGR;
+            return curr_end - SIZE_AGGR;
         default:
             dbg_assert(0);
             return NULL;
@@ -533,7 +683,10 @@ diffstack_curr_mvback(uint8_t *curr_end) {
 }
 
 int
-diffstack_undo(struct diffstack *ds, struct document *doc) {
+diffstack_undo(struct diffstack *ds
+    , struct document *doc
+    , struct window *win
+    ) {
     uint8_t *diff_beg = ds->data + ds->curr_checkpoint_beg;
     uint8_t *diff_end = ds->data + ds->curr_checkpoint_end;
 
@@ -542,37 +695,27 @@ diffstack_undo(struct diffstack *ds, struct document *doc) {
     }
     switch (*diff_beg) {
         case DIFF_CHARS_ADD:
-            diffstack_undo_chars_add(diff_beg, diff_end, doc);
-            if (ds->curr_checkpoint_beg != 0) {
-                diff_end = diff_beg;
-                diff_beg = diffstack_curr_mvback(diff_end);
-                ensure(diff_beg >= ds->data);
-
-                ds->curr_checkpoint_beg = diff_beg - ds->data;
-                ds->curr_checkpoint_end = diff_end - ds->data;
-            } else {
-                ds->curr_checkpoint_end = 0;
-            }
+            diffstack_undo_chars_add(diff_beg, diff_end, doc, win);
             break;
         case DIFF_CHARS_DEL:
-            diffstack_undo_chars_del(diff_beg, diff_end, doc);
-            if (ds->curr_checkpoint_beg != 0) {
-                diff_end = diff_beg;
-                diff_beg = diffstack_curr_mvback(diff_end);
-                ensure(diff_beg >= ds->data);
-
-                ds->curr_checkpoint_beg = diff_beg - ds->data;
-                ds->curr_checkpoint_end = diff_end - ds->data;
-            } else {
-                ds->curr_checkpoint_end = 0;
-            }
-            break;
+            diffstack_undo_chars_del(diff_beg, diff_end, doc, win);
             break;
         case DIFF_LINE_SPLIT:
+            diffstack_undo_line_split(diff_beg, diff_end, doc, win);
+            break;
         case DIFF_LINE_MERGE:
         case DIFF_AGGREGATE:
         default:
             ensure(0);
+    }
+    if (ds->curr_checkpoint_beg != 0) {
+        diff_end = diff_beg;
+        diff_beg = diffstack_curr_mvback(diff_end);
+        ensure(diff_beg >= ds->data);
+        ds->curr_checkpoint_beg = diff_beg - ds->data;
+        ds->curr_checkpoint_end = diff_end - ds->data;
+    } else {
+        ds->curr_checkpoint_end = 0;
     }
     return 0;
 }
@@ -698,17 +841,22 @@ key_input(unsigned char key, int x __unused, int y __unused) {
 
     switch (key) {
         case 'd':
-            line_insert(0, doc->lines, doc, &win, "asd", 3);
+            diff_line_insert(&diff, 0, doc->lines, doc, &win, "asd", 3);
             fill_screen(&doc, &win);
             gl_buffers_upload(&win);
             break;
         case 's':
-            line_remove(0, doc->lines, doc, &win, 3);
+            diff_line_remove(&diff, 0, doc->lines, doc, &win, 3);
             fill_screen(&doc, &win);
             gl_buffers_upload(&win);
             break;
         case 'u':
-            diffstack_undo(diff, doc);
+            diffstack_undo(diff, doc, &win);
+            fill_screen(&doc, &win);
+            gl_buffers_upload(&win);
+            break;
+        case 'p':
+            diff_line_split(&diff, 4, 0, &doc, &win);
             fill_screen(&doc, &win);
             gl_buffers_upload(&win);
             break;
@@ -1000,51 +1148,64 @@ free_line(struct document *doc, struct line *line) {
     }
 }
 
-void
-resize_extern_line(struct line *line, size_t size, struct document *doc) {
+struct extern_line *
+reserve_extern_line(struct line *line, size_t size, struct document *doc) {
     size_t alloc = line->alloc;
-    uint8_t *doc_beg = doc->file.data;
-    uint8_t *doc_end = doc->file.data + doc->file.size;
     uint8_t *str_beg;
     uint8_t *str_end;
 
-    dbg_assert(line->intern_line < doc_beg || line->intern_line > doc_end);
+    dbg_assert(!is_line_internal(line, doc));
     dbg_assert(line->ptr == NULL || line->alloc != 0);
 
-    if (size < line->size) {
-        line->size = size;
-        return;
-    }
-    if (size >= line->alloc) {
-        alloc += alloc / 2 + size;
+    if (line->size + size > alloc) {
+        alloc = line->size + line->size / 2 + size;
         ensure(reallocflexarr((void **)&line->extern_line
             , sizeof(*line->extern_line)
             , sizeof(*str_beg)
             , alloc
         ) != NULL);
-
-        if (line->intern_line == doc_end) {
-            doc->must_leak = line->extern_line;
-            line->extern_line = NULL;
-            ensure(reallocflexarr((void **)&line->extern_line
-                , sizeof(*line->extern_line)
-                , sizeof(*str_beg)
-                , alloc
-            ) != NULL);
-            memcpy(line->extern_line
-                , doc->must_leak
-                , sizeof(struct extern_line) + line->size * sizeof(*str_beg)
-            );
-        }
         line->alloc = alloc;
     }
     str_beg = line->extern_line->data + line->size;
-    str_end = line->extern_line->data + size;
+    str_end = line->extern_line->data + line->size + size;
 
     if (RUNTIME_INSTR) {
         memzero(str_beg, str_end - str_beg, sizeof(*str_beg));
     }
-    line->size = size;
+    return line->extern_line;
+}
+
+struct extern_line *
+reserve_intern_line(struct line *line, size_t size, struct document *doc) {
+    struct extern_line *el = NULL;
+    uint8_t *str_beg;
+    uint8_t *str_end;
+    size_t alloc;
+
+    dbg_assert(is_line_internal(line, doc));
+
+    alloc = line->size + size;
+    ensure(reallocflexarr((void **)&el
+        , sizeof(*line->extern_line)
+        , sizeof(*str_beg)
+        , alloc
+    ) != NULL);
+    line->alloc = alloc;
+    str_beg = line->intern_line;
+    str_end = line->intern_line + size;
+
+    el->utf8_status = UTF8_CLEAN;
+    memcpy(el->data, str_beg, str_end - str_beg);
+
+    line->extern_line = el;
+
+    str_beg = line->extern_line->data + line->size;
+    str_end = line->extern_line->data + line->size + size;
+
+    if (RUNTIME_INSTR) {
+        memzero(str_beg, str_end - str_beg, sizeof(*str_beg));
+    }
+    return el;
 }
 
 void
@@ -1055,8 +1216,9 @@ init_extern_line(struct line *line
     , struct document *doc
     ) {
     ensure(line->ptr == NULL);
-    resize_extern_line(line, size, doc);
+    reserve_extern_line(line, size, doc);
     line->extern_line->utf8_status = utf8_status;
+    line->size = size;
     memcpy(line->extern_line->data, str, size);
 }
 
@@ -1296,12 +1458,26 @@ resize_document_by(size_t size, struct document **doc) {
 
 int
 init_doc(const char *fname, struct document **doc) {
+    int fd = open(fname, O_RDONLY);
     struct mmap_file file;
     struct document *res;
     struct line_metadata *fst_line;
     size_t alloc;
+    off_t length;
 
-    ensure(load_file(fname, &file) == 0);
+    xensure_errno(fd != -1);
+
+
+    length = lseek(fd, 0, SEEK_END);
+    xensure_errno(length != -1);
+    xensure_errno(lseek(fd, 0, SEEK_SET) != -1);
+    file.size = length;
+
+    // mappint 1 byte past the file size, so that the pointer to end of the
+    // file will never overlap with user allocated memory
+    file.data = mmap(NULL, file.size + 1, PROT_READ, MAP_PRIVATE, fd, 0);
+    xensure_errno(file.data != MAP_FAILED);
+    close(fd);
 
     alloc = file.size / 32 + 1;
     res = reallocflexarr((void **)doc, sizeof(struct document), alloc
@@ -1544,6 +1720,10 @@ recompute_win_lines_metadata(struct line_metadata *lm
 
     ensure(win->width != 0);
 
+    if (lm->line.size == 0) {
+        lm->win_lines = 1;
+        return;
+    }
     if (is_line_internal(&lm->line, doc)) {
         nglyphs = glyphs_in_utf8_line(lm->line.intern_line
             , lm->line.intern_line + lm->line.size
@@ -1800,7 +1980,88 @@ convert_line_external(struct line *line, struct document *doc) {
 }
 
 void
-line_insert(size_t pos
+diff_line_merge(struct diffstack **ds
+    , size_t x
+    , size_t y
+    , struct document **doc
+    , struct window *win
+    ) {
+    struct document *res = *doc;
+    struct line_metadata *lm_fst = res->lines + y;
+    struct line_metadata *lm_snd = res->lines + y - 1;
+
+    ensure(x == 0 && y > 0);
+
+    diffstack_insert_merge(ds, lm_fst, 1, x, y);
+    merge_lines(lm_snd, lm_fst, res);
+
+    free_line(res, &lm_snd->line);
+    memcpy(lm_fst, lm_fst + 1, res->loaded_size + 1 - 1);
+
+    recompute_win_lines_metadata(lm_snd, res, win);
+}
+
+void
+diff_line_split(struct diffstack **ds
+    , size_t x
+    , size_t y
+    , struct document **doc
+    , struct window *win
+    ) {
+    struct extern_line* el = NULL;
+    struct line_metadata *lm_beg;
+    struct line_metadata *lm_rst;
+    struct line_metadata *lm_end;
+    struct document *res;
+    uint8_t *fst_beg;
+    uint8_t *fst_end;
+    uint8_t *snd_beg;
+    uint8_t *snd_end;
+    size_t rst_size;
+
+    resize_document_by(1, doc);
+    res = *doc;
+
+    res->loaded_size++;
+    lm_beg = res->lines + y;
+    lm_end = res->lines + res->loaded_size;
+    lm_rst = lm_beg + 1;
+
+    memmove(lm_rst, lm_beg, (lm_end - lm_beg) * sizeof(*lm_beg));
+
+    fst_beg = begin_line_metadata(lm_beg, res);
+    fst_end = fst_beg + x;
+    snd_beg = fst_end;
+    snd_end = fst_beg + lm_beg->line.size;
+    rst_size = snd_end - snd_beg;
+
+    ensure(reallocflexarr((void **)&el
+            , sizeof(*el)
+            , rst_size
+            , sizeof(*el->data)
+    ));
+    if (next_utf8_or_null(snd_beg, snd_end) == NULL) {
+        el->utf8_status = UTF8_DIRTY;
+        convert_line_external(&lm_beg->line, res);
+        lm_beg->line.extern_line->utf8_status = UTF8_DIRTY;
+    } else {
+        el->utf8_status = UTF8_CLEAN;
+    }
+    memcpy(el->data, snd_beg, rst_size * sizeof(*el->data));
+    lm_rst->line.alloc = rst_size;
+    lm_rst->line.size = rst_size;
+    lm_rst->line.extern_line = el;
+    lm_beg->line.size = fst_end - fst_beg;
+
+    recompute_win_lines_metadata(lm_beg, *doc, win);
+    recompute_win_lines_metadata(lm_rst, *doc, win);
+
+    diffstack_insert_split(ds, 1, x, y);
+}
+
+void
+diff_line_insert(struct diffstack **ds
+    , size_t pos
     , struct line_metadata *lm
     , struct document *doc
     , struct window *win
@@ -1810,7 +2071,7 @@ line_insert(size_t pos
     struct line *line = &lm->line;
     uint8_t *data_curr = data;
     uint8_t *data_end = data + size;
-    struct extern_line *el = line_reserve(line, size, doc);
+    struct extern_line *el = reserve_line(line, size, doc);
     uint8_t *el_curr = el->data + pos;
     uint8_t *el_end = el->data + line->size;
 
@@ -1828,11 +2089,12 @@ line_insert(size_t pos
     memcpy(el_curr, data, size);
     line->size += size;
     recompute_win_lines_metadata(lm, doc, win);
-    diffstack_insert_chars_add(&diff, data, size, pos, lm - doc->lines);
+    diffstack_insert_chars_add(ds, data, size, pos, lm - doc->lines);
 }
 
 void
-line_remove(size_t pos
+diff_line_remove(struct diffstack **ds
+    , size_t pos
     , struct line_metadata *lm
     , struct document *doc
     , struct window *win
@@ -1855,7 +2117,7 @@ line_remove(size_t pos
     if (next_utf8_or_null(data_end, el_end) == NULL) {
         el->utf8_status = UTF8_DIRTY;
     }
-    diffstack_insert_chars_del(&diff, el_curr, size, pos, lm - doc->lines);
+    diffstack_insert_chars_del(ds, el_curr, size, pos, lm - doc->lines);
     memmove(data_curr, data_end, rhs_size);
     line->size -= size;
 
