@@ -4,21 +4,20 @@ DEBUG_CFLAGS	:= ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
 RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 -DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
 
-all: ofont umaph ctags
-	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c ./ext/unifont.o $(LDFLAGS) -o se
-
-se: seh ctags
-	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c ./ext/unifont.o $(LDFLAGS) -o se
-seh:
+all: ofont umaph
 	@$(SH) ./ext/gen_headers se.c > se.h
+	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
+		se.c lex.c util.c fio.c comp.c ./ext/unifont.o $(LDFLAGS) -o se
 
-ctags:
+bin:
 	@ctags *.c
+	@$(SH) ./ext/gen_headers se.c > se.h
+	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
+		se.c lex.c util.c fio.c comp.c ./ext/unifont.o $(LDFLAGS) -o se
 
-release: seh umaph ofont
-	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(RELEASE_CFLAGS) \
+release: umaph ofont
+	@$(SH) ./ext/gen_headers se.c > se.h
+	$(CC) -DNDEBUG -DLINK_FONT -D_GNU_SOURCE  $(RELEASE_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ext/unifont.o $(LDFLAGS) -o se
 
 umap:

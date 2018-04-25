@@ -25,14 +25,7 @@ reallocarr(void **arr, size_t nmemb, size_t size) {
 
 void *
 reallocflexarr(void **arr, size_t header, size_t nmemb, size_t size) {
-    size_t header_nmemb = header / size + header % size;
-    void *res;
-
-    if (nmemb + header_nmemb > SIZE_MAX / size) {
-        errno = ENOMEM;
-        res = NULL;
-    }
-    res = realloc(*arr, nmemb * size + header);
+    void *res = realloc(*arr, nmemb * size + header);
     if (res != NULL) {
         *arr = res;
     }
