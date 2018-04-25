@@ -156,6 +156,18 @@ enum DIFF_DELIM {
     DIFF_SPLIT_SEP = '\1',
 };
 
+struct selection {
+    size_t y;
+    size_t x_beg;
+    size_t x_end;
+};
+
+struct selectarr {
+    size_t alloc;
+    size_t size;
+    struct selection data[];
+} *selv;
+
 #include "se.h"
 
 uint32_t
@@ -846,7 +858,7 @@ key_input(unsigned char key, int x __unused, int y __unused) {
             diffstack_undo(diff, doc);
             break;
         case 'p':
-            diff_line_split(&diff, 4, 0, &doc);
+            diff_line_split(&diff, 0, 0, &doc);
             break;
         case 'm':
             diff_line_merge(&diff, 0, 1, &doc);
@@ -1145,7 +1157,6 @@ reserve_extern_line(struct line *line, size_t size, struct document *doc) {
     uint8_t *str_end;
 
     dbg_assert(!is_line_internal(line, doc));
-    dbg_assert(line->ptr == NULL || line->alloc != 0);
 
     if (line->size + size > alloc || line->ptr == NULL) {
         alloc = line->size + line->size / 2 + size;
@@ -1372,7 +1383,7 @@ load_lines(size_t nlines, struct document **doc) {
     if (trampoline->line.ptr == doc_end) {
         return 0;
     }
-    ensure(resize_document_by(nlines, doc) == 0);
+    ensure(resize_document_by(nlines, doc) != NULL);
     res = *doc;
     trampoline = res->lines + res->loaded_size;
     doc_end = res->file.data + res->file.size;
@@ -1438,7 +1449,7 @@ glyph_from_utf8(uint8_t **line) {
     return 0u;
 }
 
-int
+struct document *
 resize_document_by(size_t size, struct document **doc) {
     struct document *res = *doc;
     size_t alloc = res->alloc;
@@ -1455,7 +1466,7 @@ resize_document_by(size_t size, struct document **doc) {
             , sizeof(struct line_metadata)
         );
         if (res == NULL) {
-            return -1;
+            return res;
         }
         res->alloc = alloc;
     }
@@ -1463,8 +1474,28 @@ resize_document_by(size_t size, struct document **doc) {
     memzero(lm, size, sizeof(*lm));
 
     dbg_assert(res->alloc > res->loaded_size);
+    return res;
+}
+
+int
+init_sel(size_t alloc, struct selectarr **selv) {
+    struct selection *sel;
+
+    ensure(alloc > 0);
+    ensure(reallocflexarr((void **)selv
+        , sizeof(struct selectarr)
+        , alloc
+        , sizeof(struct selection)
+    ) != NULL);
+    sel = (*selv)->data;
+    sel->y = 0;
+    sel->x_beg = 0;
+    sel->x_end = 0;
+    (*selv)->alloc = alloc;
+    (*selv)->size = 1;
     return 0;
 }
+ 
 
 int
 init_doc(const char *fname, struct document **doc) {
@@ -1577,7 +1608,10 @@ fill_line(unsigned i
     , enum UTF8_STATUS utf8_status
     , uint8_t *line_beg
     , uint8_t *line_end
+    , size_t x_off
     , struct window *win
+    , struct selection *sel_beg
+    , struct selection *sel_end
     ) {
     uint8_t *line_curr = line_beg;
     unsigned j = 0;
@@ -1588,18 +1622,27 @@ fill_line(unsigned i
     struct quad_color *qc_curr;
     uint32_t glyph;
 
-
     if (utf8_status == UTF8_CLEAN) {
         while (line_curr != line_end) {
+            while (sel_beg != sel_end && sel_beg->x_beg < x_off) {
+                sel_beg++;
+            }
             if (cw.size == 0) {
                 cw = color_span(line_beg, line_curr, line_end);
             }
             qc_curr = win->font_color + i * win->width + j;
-            set_quad_color(qc_curr
-                , colors_table[cw.color_pos].r
-                , colors_table[cw.color_pos].g
-                , colors_table[cw.color_pos].b
-            );
+            if (sel_beg != sel_end
+                && x_off >= sel_beg->x_beg
+                && x_off <= sel_beg->x_end
+            ) {
+                set_quad_color(qc_curr, 2.0 , 2.0 , 2.0);
+            } else {
+                set_quad_color(qc_curr
+                    , colors_table[cw.color_pos].r
+                    , colors_table[cw.color_pos].g
+                    , colors_table[cw.color_pos].b
+                );
+            }
             glyph = glyph_from_utf8(&line_curr);
             dbg_assert(line_curr <= line_end);
             j = fill_glyph(i, j, glyph, win);
@@ -1611,12 +1654,22 @@ fill_line(unsigned i
                 return i;
             }
             cw.size--;
+            x_off++;
         }
     } else {
         while (line_curr != line_end) {
+            while (sel_beg != sel_end && sel_beg->x_beg < x_off) {
+                sel_beg++;
+            }
             qc_curr = win->font_color + i * win->width + j;
             set_quad_color(qc_curr, def_r, def_g, def_b);
             j = fill_glyph(i, j, *line_curr++, win);
+            if (sel_beg != sel_end
+                && x_off >= sel_beg->x_beg
+                && x_off <= sel_beg->x_end
+            ) {
+                set_quad_color(qc_curr, 2.0 , 2.0 , 2.0);
+            }
             if (j == win->width) {
                 j = 0;
                 i++;
@@ -1624,7 +1677,20 @@ fill_line(unsigned i
             if (i == win->scrollback_size) {
                 return i;
             }
+            x_off++;
         }
+    }
+    while (sel_beg != sel_end && sel_beg->x_beg < x_off) {
+        sel_beg++;
+    }
+    if (sel_beg != sel_end
+        && x_off >= sel_beg->x_beg
+        && x_off <= sel_beg->x_end
+    ) {
+        qc_curr = win->font_color + i * win->width + j;
+        set_quad_color(qc_curr, 2.0 , 2.0 , 2.0);
+        fill_glyph(i, j, 0x20, win);
+        j++;
     }
     while (j < win->width) {
         qc_curr = win->font_color + i * win->width + j;
@@ -1761,12 +1827,15 @@ fill_screen(struct document **doc, struct window *win) {
     struct line_metadata *lm = res->lines + res->y_line_off;
     struct line_metadata *lm_end = res->lines + res->loaded_size;
     struct line_metadata *lm_curr;
+    struct selection *sel_beg = selv->data;
+    struct selection *sel_end = selv->data + selv->size;
     unsigned i = 0;
     unsigned j;
     enum UTF8_STATUS utf8_status;
     size_t win_lines;
     uint8_t *line_beg;
     uint8_t *line_end;
+    struct selection *sel_line_end;
 
     if (win->scrollback_size * win->width == 0) {
         return;
@@ -1798,6 +1867,9 @@ fill_screen(struct document **doc, struct window *win) {
             lm_end = res->lines + res->loaded_size;
         }
     }
+    if (lm == lm_end) {
+        goto CLEAR_SCREEN;
+    }
     if (is_line_internal(&lm->line, res)) {
         utf8_status = UTF8_CLEAN;
         line_beg = lm->line.intern_line + res->x_off;
@@ -1807,13 +1879,20 @@ fill_screen(struct document **doc, struct window *win) {
         line_beg = lm->line.extern_line->data + res->x_off;
         line_end = lm->line.extern_line->data + lm->line.size;
     }
-    if (lm == lm_end) {
-        goto CLEAR_SCREEN;
+    sel_line_end = sel_beg;
+    while (sel_line_end != sel_end && sel_line_end->y == sel_beg->y) {
+        sel_line_end++;
     }
-    while (1) {
-        i = fill_line(i, utf8_status, line_beg, line_end, win);
-        if (++lm == lm_end || i == win->scrollback_size) {
-            break;
+    while (sel_beg != sel_end && sel_beg->y < res->y_line_off) {
+        sel_beg++;
+    }
+    i = fill_line(i, utf8_status, line_beg, line_end, res->x_off, win, sel_beg, sel_line_end);
+    while (++lm != lm_end && i != win->scrollback_size) {
+        while (sel_beg != sel_end && sel_beg->y < res->y_line_off + i) {
+            sel_beg++;
+        }
+        while (sel_line_end != sel_end && sel_line_end->y == sel_beg->y) {
+            sel_line_end++;
         }
         if (is_line_internal(&lm->line, res)) {
             utf8_status = UTF8_CLEAN;
@@ -1824,9 +1903,10 @@ fill_screen(struct document **doc, struct window *win) {
             line_beg = lm->line.extern_line->data;
             line_end = lm->line.extern_line->data + lm->line.size;
         }
+        i = fill_line(i, utf8_status, line_beg, line_end, 0, win, sel_beg, sel_line_end);
     }
 CLEAR_SCREEN:
-    while (i != win->scrollback_size) {
+    while (i < win->scrollback_size) {
         for (j = 0; j < win->width; j++) {
             fill_glyph(i, j, 0x20, win);
         }
@@ -2001,13 +2081,50 @@ diff_line_merge(struct diffstack **ds
     lm_into->win_lines = 0;
 }
 
+struct document *
+insert_empty_lines(size_t y, size_t n, struct document **doc) {
+    struct document *res = resize_document_by(n, doc);
+    struct line_metadata *lm_beg;
+    struct line_metadata *lm_end;
+    struct line_metadata *lm_dst;
+
+    if (n == 0) {
+        return res;
+    }
+    dbg_assert(y <= res->loaded_size);
+
+    lm_beg = res->lines + y;
+    lm_end = res->lines + res->loaded_size + 1;
+    lm_dst = lm_beg + n;
+
+    memmove(lm_dst, lm_beg, (lm_end - lm_beg) * sizeof(struct line_metadata));
+    memzero(lm_beg, lm_dst - lm_beg, sizeof(struct line_metadata));
+    for (; lm_beg != lm_dst; lm_beg++) {
+        init_extern_line(&lm_beg->line, NULL, 0, UTF8_CLEAN, res);
+        lm_beg->win_lines = 1;
+    }
+    res->loaded_size += n;
+    return res;
+}
+
+void
+copy_extern_line(struct line *line
+    , uint8_t *src
+    , size_t size
+    , struct document *doc
+    ) {
+
+    ensure(!is_line_internal(line, doc));
+
+    reserve_extern_line(line, size, doc);
+    memcpy(line->extern_line->data, src, size); 
+    line->size += size;
+}
+
 void
 insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
-    struct extern_line* el = NULL;
     struct line_metadata *lm_beg;
     struct line_metadata *lm_rst;
-    struct line_metadata *lm_end;
-    struct line_metadata *lm_it;
     struct document *res;
     uint8_t *fst_beg;
     uint8_t *fst_end;
@@ -2018,21 +2135,10 @@ insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
     if (n == 0) {
         return;
     }
-    resize_document_by(n, doc);
-    res = *doc;
+    res = insert_empty_lines(y + 1, n, doc);
 
     lm_beg = res->lines + y;
-    lm_end = res->lines + res->loaded_size + 1;
     lm_rst = lm_beg + n;
-
-    memmove(lm_rst, lm_beg, (lm_end - lm_beg) * sizeof(*lm_beg));
-    for (lm_it = lm_beg + 1; lm_it < lm_rst; lm_it++) {
-        memzero(&lm_it->line, 1, sizeof(struct line));
-        init_extern_line(&lm_it->line, NULL, 0, UTF8_CLEAN, *doc);
-        lm_it->win_lines = 1;
-
-    }
-    res->loaded_size += n;
 
     fst_beg = begin_line_metadata(lm_beg, res);
     fst_end = fst_beg + x;
@@ -2040,25 +2146,16 @@ insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
     snd_end = fst_beg + lm_beg->line.size;
     rst_size = snd_end - snd_beg;
 
-    ensure(reallocflexarr((void **)&el
-            , sizeof(struct extern_line)
-            , rst_size
-            , sizeof(uint8_t)
-    ));
-    if (next_utf8_or_null(snd_beg, snd_end) == NULL) {
-        el->utf8_status = UTF8_DIRTY;
+    copy_extern_line(&lm_rst->line, snd_beg, rst_size, res);
+
+    if (!is_line_utf8(&lm_beg->line, res)
+        || next_utf8_or_null(snd_beg, snd_end) == NULL) {
         convert_line_external(&lm_beg->line, res);
         lm_beg->line.extern_line->utf8_status = UTF8_DIRTY;
-    } else {
-        el->utf8_status = UTF8_CLEAN;
+        lm_rst->line.extern_line->utf8_status = UTF8_DIRTY;
     }
-    memcpy(el->data, snd_beg, rst_size * sizeof(*el->data));
-    lm_rst->line.alloc = rst_size;
-    lm_rst->line.size = rst_size;
-    lm_rst->line.extern_line = el;
     lm_beg->line.size = fst_end - fst_beg;
     lm_beg->win_lines = 0;
-    lm_rst->win_lines = 0;
 }
 
 void
@@ -2142,6 +2239,7 @@ main(int argc, char *argv[]) {
     }
     xensure(init_diffstack(&diff, 0x1000) == 0);
     xensure(init_doc(fname, &doc) == 0);
+    xensure(init_sel(16, &selv) == 0);
     xensure(win_init(argc, argv) == 0);
     xensure(gl_pipeline_init() == 0);
 
