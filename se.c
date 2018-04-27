@@ -809,6 +809,7 @@ void
 window_resize(int win_width_px, int win_height_px) {
     glViewport(0, 0, win_width_px, win_height_px);
     doc->y_window_line_off = 0;
+    doc->x_off = 0;
     resize_display_matrix(win_width_px, win_height_px);
 }
 
@@ -874,24 +875,158 @@ key_input(unsigned char key, int x __unused, int y __unused) {
 }
 
 void
-key_special_input(int key, int x __unused, int y __unused) {
+move_cursor_down(struct selection *sel) {
+    size_t win_lines = 0;
+    struct line_metadata *lm;
+    size_t x;
+
+    if (sel->y + 1 > doc->loaded_size) {
+        if (is_fully_loaded(doc)) {
+            return;
+        }
+        load_lines(win.height, &doc);
+    }
+    sel->y++;
+    for (lm = doc->lines + doc->y_line_off; lm < doc->lines + sel->y; lm++) {
+        if (lm->win_lines == 0) {
+            recompute_win_lines_metadata(lm, doc, &win);
+        }
+        win_lines += lm->win_lines;
+    }
+    x = min(lm->line.size, sel->x_end);
+    win_lines += glyphs_in_line(begin_line_metadata(lm, doc)
+        , begin_line_metadata(lm, doc) + x
+        , &win
+        , is_line_utf8(&lm->line, doc)
+    ) / win.width;
+    win_lines -= doc->y_window_line_off + win.scrollback_pos;
+    if (win_lines >= win.height) {
+        move_scrollback(&win, MV_VERT_DOWN, win_lines - win.height + 1, &doc);
+    }
+    sel->x_beg = x;
+    sel->x_end = x;;
+}
+
+void move_cursor_right(struct selection *sel) {
+    struct line_metadata *lm = doc->lines + sel->y;
+    size_t win_lines = 0;
+
+    dbg_assert(lm < doc->lines + doc->loaded_size
+        || (lm == doc->lines + doc->loaded_size && is_fully_loaded(doc)));
+    if (lm == doc->lines + doc->loaded_size) {
+        return;
+    }
+    if (sel->x_end == count_chars(begin_line_metadata(lm, doc)
+            , begin_line_metadata(lm, doc) + lm->line.size
+            , is_line_utf8(&lm->line, doc)
+        )) {
+        sel->x_beg = 0;
+        sel->x_end = 0;
+        move_cursor_down(sel);
+        return;
+    }
+    sel->x_beg++;
+    sel->x_end++;
+    for (lm = doc->lines + doc->y_line_off; lm < doc->lines + sel->y; lm++) {
+        if (lm->win_lines == 0) {
+            recompute_win_lines_metadata(lm, doc, &win);
+        }
+        win_lines += lm->win_lines;
+    }
+    win_lines -= doc->y_window_line_off + win.scrollback_pos;
+    win_lines += glyphs_in_line(begin_line_metadata(lm, doc)
+        , begin_line_metadata(lm, doc) + sel->x_end
+        , &win
+        , is_line_utf8(&lm->line, doc)
+    ) / win.width;
+    if (win_lines >= win.height) {
+        move_scrollback(&win, MV_VERT_DOWN, win_lines - win.height + 1, &doc);
+    }
+}
+
+void move_cursor_left(struct selection *sel) {
+    struct line_metadata *lm = doc->lines + sel->y;
+
+    dbg_assert(lm < doc->lines + doc->loaded_size
+        || (lm == doc->lines + doc->loaded_size && is_fully_loaded(doc)));
+    if (lm == doc->lines && sel->x_end == 0) {
+        return;
+    }
+    if (sel->x_end == 0) {
+        if (sel->y == 0) {
+            return;
+        }
+        lm--;
+        sel->x_beg = glyphs_in_line(begin_line_metadata(lm, doc)
+            , begin_line_metadata(lm, doc) + lm->line.size
+            , &win
+            , is_line_utf8(&lm->line, doc)
+        );
+        sel->x_end = sel->x_beg;
+        sel->y--;
+    } else {
+        sel->x_beg--;
+        sel->x_end--;
+    }
+}
+
+
+void
+move_cursor_up(struct selection *sel) {
+    struct line_metadata *lm;
+    size_t win_lines;
+    size_t x;
+
+    if (sel->y == 0) {
+        return;
+    }
+    sel->y--;
+    lm = doc->lines + sel->y;
+    x = min(lm->line.size, sel->x_end);
+    if (doc->y_line_off + win.scrollback_pos > sel->y) {
+        if (lm->win_lines == 0) {
+            recompute_win_lines_metadata(lm, doc, &win);
+        }
+        win_lines = lm->win_lines;
+        move_scrollback(&win, MV_VERT_UP, win_lines, &doc);
+    }
+    sel->x_beg = x;
+    sel->x_end = x;
+}
+
+void
+key_special_input(int key, int mx __unused, int my __unused) {
 
     switch (key) {
         case GLUT_KEY_DOWN:
-            move_scrollback(&win, MV_VERT_DOWN, 1, &doc);
+            move_cursor_down(selv->data);
             break;
         case GLUT_KEY_UP:
-            move_scrollback(&win, MV_VERT_UP, 1, &doc);
+            move_cursor_up(selv->data);
             break;
         case GLUT_KEY_PAGE_DOWN:
-            move_scrollback(&win, MV_VERT_DOWN, win.height, &doc);
+            for (size_t i = 0; i < win.height; i++) {
+                move_cursor_down(selv->data);
+            }
+            //move_scrollback(&win, MV_VERT_DOWN, win.height, &doc);
             break;
         case GLUT_KEY_PAGE_UP:
-            move_scrollback(&win, MV_VERT_UP, win.height, &doc);
+            for (size_t i = 0; i < win.height; i++) {
+                move_cursor_up(selv->data);
+            }
+            //move_scrollback(&win, MV_VERT_UP, win.height, &doc);
+            break;
+        case GLUT_KEY_RIGHT:
+            move_cursor_right(selv->data);
+            break;
+        case GLUT_KEY_LEFT:
+            move_cursor_left(selv->data);
             break;
         default:
             return;
     }
+    fill_screen(&doc, &win);
+    gl_buffers_upload(&win);
     glutPostRedisplay();
 }
 
@@ -1157,6 +1292,9 @@ reserve_extern_line(struct line *line, size_t size, struct document *doc) {
     uint8_t *str_end;
 
     dbg_assert(!is_line_internal(line, doc));
+    dbg_assert((line->extern_line == NULL && line->alloc == 0)
+        || line->extern_line != NULL
+    );
 
     if (line->size + size > alloc || line->ptr == NULL) {
         alloc = line->size + line->size / 2 + size;
@@ -1603,6 +1741,35 @@ static struct color colors_table[] = {
     [6] = {0.84, 0.52, 0.37}, // orange
 };
 
+struct selection *
+sync_select_x(size_t x_off, struct selection *beg, struct selection *end) {
+
+    while (beg != end
+        && beg->x_beg < x_off
+    
+        && (x_off < beg->x_beg || x_off > beg->x_end)) {
+        beg++;
+    }
+    return beg;
+}
+
+struct selection *
+sync_select_y_beg(size_t y_off, struct selection *beg, struct selection *end) {
+
+    while (beg != end && beg->y < y_off) {
+        beg++;
+    }
+    return beg;
+}
+struct selection *
+sync_select_y_end(size_t y_off, struct selection *beg, struct selection *end) {
+
+    while (beg != end && beg->y == y_off) {
+        beg++;
+    }
+    return beg;
+}
+
 unsigned
 fill_line(unsigned i
     , enum UTF8_STATUS utf8_status
@@ -1624,9 +1791,7 @@ fill_line(unsigned i
 
     if (utf8_status == UTF8_CLEAN) {
         while (line_curr != line_end) {
-            while (sel_beg != sel_end && sel_beg->x_beg < x_off) {
-                sel_beg++;
-            }
+            sel_beg = sync_select_x(x_off, sel_beg, sel_end);
             if (cw.size == 0) {
                 cw = color_span(line_beg, line_curr, line_end);
             }
@@ -1658,9 +1823,7 @@ fill_line(unsigned i
         }
     } else {
         while (line_curr != line_end) {
-            while (sel_beg != sel_end && sel_beg->x_beg < x_off) {
-                sel_beg++;
-            }
+            sel_beg = sync_select_x(x_off, sel_beg, sel_end);
             qc_curr = win->font_color + i * win->width + j;
             set_quad_color(qc_curr, def_r, def_g, def_b);
             j = fill_glyph(i, j, *line_curr++, win);
@@ -1680,9 +1843,7 @@ fill_line(unsigned i
             x_off++;
         }
     }
-    while (sel_beg != sel_end && sel_beg->x_beg < x_off) {
-        sel_beg++;
-    }
+    sel_beg = sync_select_x(x_off, sel_beg, sel_end);
     if (sel_beg != sel_end
         && x_off >= sel_beg->x_beg
         && x_off <= sel_beg->x_end
@@ -1737,6 +1898,37 @@ glyphs_in_utf8_line(uint8_t *curr, uint8_t *end, struct window *win) {
         curr = next_utf8_char(curr);
     }
     return curr_width + win_lines * win->width;
+}
+
+size_t
+glyphs_in_line(uint8_t *curr
+    , uint8_t *end
+    , struct window *win
+    , enum UTF8_STATUS utf8_status
+    ) {
+    if (utf8_status) {
+        return glyphs_in_utf8_line(curr, end, win);
+    }
+    return end - curr;
+}
+
+size_t
+count_utf8_chars(uint8_t *curr, uint8_t *end) {
+    size_t chars = 0;
+
+    while (curr < end) {
+        curr = next_utf8_char(curr);
+        chars++;
+    }
+    return chars;
+}
+
+size_t
+count_chars(uint8_t *curr, uint8_t *end, enum UTF8_STATUS utf8_status) {
+    if (utf8_status) {
+        return count_utf8_chars(curr, end);
+    }
+    return end - curr;
 }
 
 uint8_t *
@@ -1831,6 +2023,7 @@ fill_screen(struct document **doc, struct window *win) {
     struct selection *sel_end = selv->data + selv->size;
     unsigned i = 0;
     unsigned j;
+    size_t y;
     enum UTF8_STATUS utf8_status;
     size_t win_lines;
     uint8_t *line_beg;
@@ -1879,21 +2072,15 @@ fill_screen(struct document **doc, struct window *win) {
         line_beg = lm->line.extern_line->data + res->x_off;
         line_end = lm->line.extern_line->data + lm->line.size;
     }
-    sel_line_end = sel_beg;
-    while (sel_line_end != sel_end && sel_line_end->y == sel_beg->y) {
-        sel_line_end++;
-    }
-    while (sel_beg != sel_end && sel_beg->y < res->y_line_off) {
-        sel_beg++;
-    }
-    i = fill_line(i, utf8_status, line_beg, line_end, res->x_off, win, sel_beg, sel_line_end);
+    y = res->y_line_off;
+    sel_beg = sync_select_y_beg(y, sel_beg, sel_end);
+    sel_line_end = sync_select_y_end(y, sel_beg, sel_end);
+    i = fill_line(i, utf8_status, line_beg, line_end, res->x_off, win, sel_beg
+        , sel_line_end
+    );
     while (++lm != lm_end && i != win->scrollback_size) {
-        while (sel_beg != sel_end && sel_beg->y < res->y_line_off + i) {
-            sel_beg++;
-        }
-        while (sel_line_end != sel_end && sel_line_end->y == sel_beg->y) {
-            sel_line_end++;
-        }
+        sel_beg = sync_select_y_beg(++y, sel_beg, sel_end);
+        sel_line_end = sync_select_y_end(y, sel_beg, sel_end);
         if (is_line_internal(&lm->line, res)) {
             utf8_status = UTF8_CLEAN;
             line_beg = lm->line.intern_line;
@@ -1903,9 +2090,21 @@ fill_screen(struct document **doc, struct window *win) {
             line_beg = lm->line.extern_line->data;
             line_end = lm->line.extern_line->data + lm->line.size;
         }
-        i = fill_line(i, utf8_status, line_beg, line_end, 0, win, sel_beg, sel_line_end);
+        i = fill_line(i, utf8_status, line_beg, line_end, 0, win, sel_beg
+            , sel_line_end
+        );
     }
 CLEAR_SCREEN:
+    if (sel_beg != sel_end
+        && sel_beg->y == (size_t)(lm - res->lines)
+        && sel_beg->x_beg == 0
+        && sel_beg->x_end == 0
+        && i < win->scrollback_size
+    ) {
+        set_quad_color(win->font_color + i * win->width, 2.0 , 2.0 , 2.0);
+    } else if (i < win->scrollback_size) {
+        set_quad_color(win->font_color + i * win->width, 0.0 , 0.0 , 0.0);
+    }
     while (i < win->scrollback_size) {
         for (j = 0; j < win->width; j++) {
             fill_glyph(i, j, 0x20, win);
@@ -1964,7 +2163,6 @@ move_scrollback_up(struct window *win, struct document **docp) {
     doc->x_off = x_off_winlines - begin_line_metadata(lm, doc);
 
     win->scrollback_pos--;
-    fill_screen(docp, win);
 }
 
 void
@@ -2009,11 +2207,10 @@ move_scrollback_down(struct window *win, struct document **docp) {
     doc->x_off = x_off_winlines - begin_line_metadata(lm, doc);
 
     win->scrollback_pos++;
-    fill_screen(docp, win);
 }
 
 void
-gl_buffers_upload(struct window *win) {
+gl_glyphs_upload(struct window *win) {
     size_t size = win->height * win->width;
 
     glBufferSubData(GL_ARRAY_BUFFER
@@ -2021,11 +2218,24 @@ gl_buffers_upload(struct window *win) {
         , sizeof(struct quad_coord) * size
         , win->glyph_mesh + win->scrollback_pos * win->width
     );
+}
+
+void
+gl_colors_upload(struct window *win) {
+    size_t size = win->height * win->width;
+
     glBufferSubData(GL_ARRAY_BUFFER
         , sizeof(struct quad_coord) * 2 * size
         , sizeof(struct quad_color) * size
         , win->font_color + win->scrollback_pos * win->width
     );
+}
+
+void
+gl_buffers_upload(struct window *win) {
+
+    gl_glyphs_upload(win);
+    gl_colors_upload(win);
 }
 
 void
@@ -2047,7 +2257,6 @@ move_scrollback(struct window *win
     } else {
         dbg_assert(0);
     }
-    gl_buffers_upload(win);
 }
 
 struct extern_line *
