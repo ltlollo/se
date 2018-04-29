@@ -1,84 +1,137 @@
-uint32_t first_glyph(uint8_t *, uint8_t *);
-int always(uint32_t glyph);
-int is_same_class(uint32_t, uint32_t);
-struct diffstack * diffstack_reserve(struct diffstack **, size_t);
-void diffstack_insert_merge(struct diffstack **, struct line_metadata *, size_t, size_t, size_t);
-void diffstack_insert_split(struct diffstack **, size_t, size_t, size_t);
-void diffstack_insert_chars_add(struct diffstack **, uint8_t *, size_t, size_t, size_t);
-void diffstack_insert_chars_del(struct diffstack **, uint8_t *, size_t, size_t, size_t);
-void diffstack_undo_line_merge(uint8_t *, uint8_t *, struct document *);
-void diffstack_undo_line_split(uint8_t *, uint8_t *, struct document *);
-void diffstack_undo_chars_del(uint8_t *, uint8_t *, struct document *);
-void diffstack_undo_chars_add(uint8_t *, uint8_t *, struct document *);
-uint8_t * diffstack_curr_mvback(uint8_t *);
-int diffstack_undo(struct diffstack *, struct document *);
-int init_diffstack(struct diffstack **, size_t);
-void window_render();
-void invalidate_win_line_metadata(struct document *);
-void resize_display_matrix(int, int);
-void window_resize(int, int);
-void key_input(unsigned char, int x, int y);
-void move_cursor_down(struct selection *);
-void move_cursor_right(struct selection *);
-void move_cursor_left(struct selection *);
-void move_cursor_up(struct selection *);
-void key_special_input(int, int mx, int my);
-int gl_check_program(GLuint, int);
-GLuint gl_compile_program(const char *, const char *);
-char * str_intercalate(char *, size_t, char **, size_t, char);
-int win_init(int, char *argv[]);
-void set_quad_coord(struct quad_coord *, float, float, float, float);
-void set_quad_color(struct quad_color *, float, float, float);
-void fill_window_mesh(struct window *, unsigned, unsigned);
-void gen_display_matrix(struct window *, unsigned, unsigned);
-int load_font(const char *fname, struct mmap_file *);
-void unload_font(struct mmap_file *file);
-int gl_pipeline_init();
-void free_line(struct document *, struct line *);
-struct extern_line * reserve_line(struct line *, size_t, struct document *);
-struct extern_line * reserve_extern_line(struct line *, size_t, struct document *);
-struct extern_line * reserve_intern_line(struct line *, size_t, struct document *);
-void merge_lines(struct line_metadata *, struct line_metadata *, struct document *);
-void init_extern_line(struct line *, uint8_t *, size_t, enum UTF8_STATUS, struct document *);
-uint8_t * load_line(struct line_metadata *, uint8_t *, uint8_t *, unsigned);
-uint8_t * next_utf8_or_null(uint8_t *, uint8_t *);
-int is_fully_loaded(struct document *);
-int is_line_internal(struct line *, struct document *);
-int is_line_utf8(struct line *, struct document *);
-int load_lines(size_t, struct document **);
-uint32_t glyph_from_utf8(uint8_t **);
-struct document * resize_document_by(size_t, struct document **);
-int init_sel(size_t, struct selectarr **);
-int init_doc(const char *, struct document **);
-void fill_glyph_narrow(unsigned, unsigned, uint32_t, struct window *);
-void fill_glyph_wide(unsigned, unsigned, uint32_t, struct window *);
-unsigned fill_glyph(unsigned, unsigned, uint32_t, struct window *);
-struct selection * sync_select_x(size_t, struct selection *, struct selection *);
-struct selection * sync_select_y_beg(size_t, struct selection *, struct selection *);
-struct selection * sync_select_y_end(size_t, struct selection *, struct selection *);
-unsigned fill_line(unsigned, enum UTF8_STATUS, uint8_t *, uint8_t *, size_t, struct window *, struct selection *, struct selection *);
-uint8_t * next_utf8_char(uint8_t *);
-size_t glyphs_in_utf8_line(uint8_t *, uint8_t *, struct window *);
-size_t glyphs_in_line(uint8_t *, uint8_t *, struct window *, enum UTF8_STATUS);
-size_t count_utf8_chars(uint8_t *, uint8_t *);
-size_t count_chars(uint8_t *, uint8_t *, enum UTF8_STATUS);
-uint8_t * offsetof_utf8_width(uint8_t *, uint8_t *, struct window *, size_t);
-uint8_t * offsetof_width(struct line_metadata *, struct window *, struct document *, size_t);
-void recompute_win_lines_metadata(struct line_metadata *, struct document *, struct window *);
-void fill_screen(struct document **, struct window *);
-uint8_t * begin_line_metadata(struct line_metadata *, struct document *);
-uint8_t * end_line_metadata(struct line_metadata *, struct document *);
-void move_scrollback_up(struct window *, struct document **);
-void move_scrollback_down(struct window *, struct document **);
-void gl_glyphs_upload(struct window *);
-void gl_colors_upload(struct window *);
-void gl_buffers_upload(struct window *);
-void move_scrollback(struct window *, enum MV_VERT_DIRECTION, size_t, struct document **);
-struct extern_line * convert_line_external(struct line *, struct document *);
-void diff_line_merge(struct diffstack **, size_t, size_t, struct document **);
-struct document * insert_empty_lines(size_t, size_t, struct document **);
-void copy_extern_line(struct line *, uint8_t *, size_t, struct document *);
-void insert_n_line(size_t, size_t, size_t, struct document **);
-void diff_line_split(struct diffstack **, size_t, size_t, struct document **);
-void diff_line_insert(struct diffstack **, size_t, struct line_metadata *, struct document *, uint8_t *, size_t);
-void diff_line_remove(struct diffstack **, size_t, struct line_metadata *, struct document *, size_t);
+// This is free and unencumbered software released into the public domain.
+// For more information, see LICENSE.
+
+#ifndef SE_H
+#define SE_H
+
+typedef int(*class_fn)(uint32_t);
+
+struct gl_data {
+    GLuint vao;
+    GLuint tbo;
+    GLuint vbo;
+    GLuint prog;
+    GLuint col;
+    GLuint pos;
+    GLuint uv;
+    GLuint tex;
+};
+
+struct coord {
+    GLfloat x;
+    GLfloat y;
+};
+
+struct color {
+    GLfloat r;
+    GLfloat b;
+    GLfloat g;
+};
+
+struct quad_coord {
+    struct coord vertex_pos[6];
+};
+
+struct quad_color {
+    struct color vertex_color[6];
+};
+
+struct window {
+    void *data;
+    unsigned width;
+    unsigned height;
+    unsigned scrollback_size;
+    unsigned scrollback_pos;
+    struct quad_coord *window_mesh;
+    struct quad_coord *glyph_mesh;
+    struct quad_color *font_color;
+};
+
+struct selection {
+    size_t line;
+    size_t glyph_beg;
+    size_t glyph_end;
+};
+
+struct selectarr {
+    size_t alloc;
+    size_t size;
+    struct selection data[];
+};
+
+enum UTF8_STATUS {
+    UTF8_CLEAN = 0,
+    UTF8_DIRTY = 1,
+};
+
+enum MV_VERT_DIRECTION {
+    MV_VERT_UP = 0,
+    MV_VERT_DOWN = 1,
+};
+
+enum MV_HORZ_DIRECTION {
+    MV_HORZ_LEFT = 2,
+    MV_HORZ_RIGHT = 3,
+};
+
+enum MV_DIRECTION {
+    MV_UP = MV_VERT_UP,
+    MV_DOWN = MV_VERT_DOWN,
+    MV_LEFT = MV_HORZ_LEFT,
+    MV_RIGHT = MV_HORZ_RIGHT,
+};
+
+struct extern_line {
+    uint8_t utf8_status;
+    uint8_t data[];
+};
+
+struct line {
+    size_t size;
+    size_t alloc;
+    union {
+        struct extern_line *extern_line;
+        uint8_t *intern_line;
+        void *ptr;
+    };
+};
+
+struct line_non_utf8 {
+    size_t size;
+    uint8_t *data;
+};
+
+struct document {
+    struct mmap_file file;
+    size_t alloc;
+    size_t loaded_size;
+    size_t line_off;
+    size_t glyph_off;
+    struct line lines[];
+};
+
+static struct diffstack {
+    size_t alloc;
+    size_t curr_checkpoint_beg;
+    size_t curr_checkpoint_end;
+    size_t last_checkpoint_beg;
+    size_t last_checkpoint_end;
+    uint8_t data[];
+} *diff;
+
+
+enum DIFF {
+    DIFF_CHARS_ADD  = 'a',
+    DIFF_CHARS_DEL  = 'd',
+    DIFF_LINE_SPLIT = 's',
+    DIFF_LINE_MERGE = 'm',
+    DIFF_AGGREGATE  = 'A',
+};
+
+enum DIFF_DELIM {
+    DIFF_CHAR_SEQ  = '\n',
+    DIFF_AGGR_SEQ  = '\0',
+    DIFF_SPLIT_SEP = '\1',
+};
+
+#endif // SE_H
