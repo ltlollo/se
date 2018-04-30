@@ -45,6 +45,7 @@ static struct window win;
 static struct document *doc;
 static struct diffstack *diff;
 static struct selectarr *selv;
+static struct color hilight = { .r = 2.0, .g = 2.0, .b = 2.0 };
 
 uint32_t
 first_glyph(uint8_t *beg, uint8_t *end) {
@@ -656,6 +657,7 @@ resize_display_matrix(int win_width_px, int win_height_px) {
     glVertexAttribPointer(gl_id.col, 3, GL_FLOAT, GL_FALSE, 0
         , (void *)(sizeof(struct quad_coord) * 2 * size)
     );
+    screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
 }
 
 void
@@ -725,25 +727,34 @@ key_input(unsigned char key, int x __unused, int y __unused) {
     glutPostRedisplay();
 }
 
+
+
 void
-key_special_input(int key, int x __unused, int y __unused) {
+key_special_input(int key, int mx __unused, int my __unused) {
+    struct selection *focus = selv->focus;
 
     switch (key) {
         case GLUT_KEY_DOWN:
-            move_scrollback(&win, MV_VERT_DOWN, 1, &doc);
+            focus->line++;
             break;
         case GLUT_KEY_UP:
-            move_scrollback(&win, MV_VERT_UP, 1, &doc);
+            if (focus->line) focus->line--;
+            break;
+        case GLUT_KEY_RIGHT:
+            focus->glyph_end++;
+            break;
+        case GLUT_KEY_LEFT:
+            if (focus->glyph_end) focus->glyph_end--;
             break;
         case GLUT_KEY_PAGE_DOWN:
-            move_scrollback(&win, MV_VERT_DOWN, win.height, &doc);
             break;
         case GLUT_KEY_PAGE_UP:
-            move_scrollback(&win, MV_VERT_UP, win.height, &doc);
             break;
         default:
             break;
     }
+    screen_reposition(&win, &doc, focus->line, focus->glyph_end);
+    fill_screen_colors(doc, &win, selv, 0);
     gl_buffers_upload(&win);
     glutPostRedisplay();
 }
@@ -756,9 +767,12 @@ screen_reposition(struct window *win
     struct document *doc = *docp;
     size_t win_lines;
 
+    if (window_area(win) == 0) {
+        return;
+    }
     if (cursor_glyph >= doc->glyph_off
-        && cursor_glyph < doc->glyph_off + win->height
-    )  {
+        && cursor_glyph < doc->glyph_off + win->width
+    ) {
         if (cursor_line >= doc->line_off + win->scrollback_pos
             && cursor_line < doc->line_off + win->scrollback_pos + win->height
         ) {
@@ -775,17 +789,17 @@ screen_reposition(struct window *win
             move_scrollback(win, MV_VERT_DOWN, win_lines, &doc);
         }
     } else {
-        if (cursor_glyph < doc->glyph_off) {
-            while (cursor_glyph < doc->glyph_off) {
-                doc->glyph_off -= win->height / 2;
+        if (doc->glyph_off > cursor_glyph) {
+            while (doc->glyph_off > cursor_glyph) {
+                doc->glyph_off -= win->width / 2;
             }
         } else {
-            dbg_assert(cursor_glyph >= doc->glyph_off + win->height);
-            while (cursor_glyph >= doc->glyph_off + win->height) {
-                doc->glyph_off += win->height / 2;
+            dbg_assert(cursor_glyph >= doc->glyph_off + win->width);
+            while (doc->glyph_off + win->width <= cursor_glyph) {
+                doc->glyph_off += win->width / 2;
             }
         }
-        fill_screen(docp, win, 0);
+        fill_screen_glyphs(docp, win, 0);
     }
 }
 
@@ -896,13 +910,11 @@ set_quad_coord(struct quad_coord *q, float x, float y, float dx, float dy) {
 }
 
 void
-set_quad_color(struct quad_color *q, float r, float g, float b) {
+set_quad_color(struct quad_color *q, struct color *color) {
     int i;
 
     for (i = 0; i < 6; i++) {
-        q->vertex_color[i].r = r;
-        q->vertex_color[i].g = g;
-        q->vertex_color[i].b = b;
+        q->vertex_color[i] = *color;
     }
 }
 
@@ -1361,6 +1373,7 @@ init_sel(size_t alloc, struct selectarr **selv) {
     sel->line = 0;
     sel->glyph_beg = 0;
     sel->glyph_end = 0;
+    (*selv)->focus = (*selv)->data;
     (*selv)->alloc = alloc;
     (*selv)->size = 1;
     return 0;
@@ -1451,7 +1464,44 @@ fill_glyph(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
 }
 
 void
-fill_line(unsigned i
+fill_line_glyphs(unsigned i
+    , int utf8
+    , uint8_t *line_beg
+    , uint8_t *line_end
+    , unsigned from_glyph
+    , struct window *win
+    ) {
+    uint8_t *line_curr = line_beg;
+    unsigned num_glyph = 0;
+    unsigned j = 0;
+    uint32_t glyph;
+
+    if (utf8) {
+        while (line_curr != line_end && j != win->width) {
+            glyph = glyph_from_utf8(&line_curr);
+            dbg_assert(line_curr <= line_end);
+            if (num_glyph++ < from_glyph) {
+                continue;
+            }
+            fill_glyph(i, j, glyph, win);
+            j++;
+        }
+    } else {
+        line_curr = min(line_curr + from_glyph, line_end);
+        while (line_curr != line_end && j != win->width) {
+            fill_glyph(i, j, *line_curr++, win);
+            j++;
+        }
+    }
+    while (j < win->width) {
+        fill_glyph(i, j, 0x20, win);
+        j++;
+    }
+}
+
+
+void
+fill_line_colors(unsigned i
     , int utf8
     , uint8_t *line_beg
     , uint8_t *line_end
@@ -1461,50 +1511,36 @@ fill_line(unsigned i
     uint8_t *line_curr = line_beg;
     unsigned j = 0;
     unsigned num_glyph = 0;
-    float def_r = colors_table[0].r;
-    float def_g = colors_table[0].g;
-    float def_b = colors_table[0].b;
+    struct color *def = colors_table;
     struct colored_span cw = { .color_pos = 0, .size = 0 };
     struct quad_color *qc_curr;
-    uint32_t glyph;
 
     if (utf8) {
-        while (line_curr != line_end) {
+        while (line_curr != line_end && j != win->width) {
             if (cw.size == 0) {
                 cw = color_span(line_beg, line_curr, line_end);
             }
             qc_curr = win->font_color + i * win->width + j;
-            set_quad_color(qc_curr
-                , colors_table[cw.color_pos].r
-                , colors_table[cw.color_pos].g
-                , colors_table[cw.color_pos].b
-            );
-            glyph = glyph_from_utf8(&line_curr);
+            set_quad_color(qc_curr, colors_table + cw.color_pos);
+            line_curr = next_utf8_char(line_curr);
             dbg_assert(line_curr <= line_end);
-            if (num_glyph++ >= from_glyph) {
-                fill_glyph(i, j, glyph, win);
-                j++;
+            if (num_glyph++ < from_glyph) {
+                continue;
             }
-            if (j == win->width) {
-                return;
-            }
+            j++;
             cw.size--;
         }
     } else {
         line_curr = min(line_curr + from_glyph, line_end);
-        while (line_curr != line_end) {
+        while (line_curr != line_end && j != win->width) {
             qc_curr = win->font_color + i * win->width + j;
-            set_quad_color(qc_curr, def_r, def_g, def_b);
-            fill_glyph(i, j, *line_curr++, win);
-            if (++j == win->width) {
-                return;
-            }
+            set_quad_color(qc_curr, def);
+            j++;
         }
     }
     while (j < win->width) {
         qc_curr = win->font_color + i * win->width + j;
-        set_quad_color(qc_curr, def_r, def_g, def_b);
-        fill_glyph(i, j, 0x20, win);
+        set_quad_color(qc_curr, def);
         j++;
     }
 }
@@ -1562,6 +1598,15 @@ fill_screen(struct document **doc
     , struct window *win
     , unsigned i
     ) {
+    fill_screen_glyphs(doc, win, i);
+    fill_screen_colors(*doc, win, selv, i);
+}
+
+void
+fill_screen_glyphs(struct document **doc
+    , struct window *win
+    , unsigned i
+    ) {
     struct document *res = *doc;
     struct line *line_beg = res->lines + res->line_off;
     struct line *line_end = res->lines + res->loaded_size;
@@ -1581,7 +1626,7 @@ fill_screen(struct document **doc
         win_lines = res->loaded_size - res->line_off;
     }
     for (; i < min(win_lines, win->scrollback_size); i++) {
-        fill_line(i
+        fill_line_glyphs(i
             , is_line_utf8(line_beg + i, res)
             , begin_line(line_beg + i, res)
             , end_line(line_beg + i, res)
@@ -1595,6 +1640,48 @@ fill_screen(struct document **doc
         }
         i++;
     }
+}
+
+void
+fill_screen_colors(struct document *doc
+    , struct window *win
+    , struct selectarr *selv
+    , unsigned i
+    ) {
+    struct line *line_beg = doc->lines + doc->line_off;
+    struct line *line_end = doc->lines + doc->loaded_size;
+    size_t win_lines = doc->loaded_size - doc->line_off;
+
+    ensure(line_beg <= line_end);
+
+    if (win->scrollback_size * win->width == 0) {
+        return;
+    }
+    dbg_assert(!(win_lines < win->scrollback_size && !is_fully_loaded(doc)));
+
+    for (; i < min(win_lines, win->scrollback_size); i++) {
+        fill_line_colors(i
+            , is_line_utf8(line_beg + i, doc)
+            , begin_line(line_beg + i, doc)
+            , end_line(line_beg + i, doc)
+            , doc->glyph_off
+            , win
+        );
+    }
+    fill_selections_colors(doc, win, selv, i);
+}
+
+void
+fill_selections_colors(struct document *doc
+    , struct window *win
+    , struct selectarr *selv
+    , unsigned i __unused
+    ) {
+    unsigned ic = selv->focus->line - doc->line_off;
+    unsigned jc = selv->focus->glyph_end - doc->glyph_off;
+    struct quad_color *qc_curr = win->font_color + ic * win->width + jc;
+
+    set_quad_color(qc_curr, &hilight);
 }
 
 uint8_t *
@@ -1636,11 +1723,7 @@ move_scrollback_up(struct window *win, struct document **docp) {
         , win->glyph_mesh
         , size * sizeof(struct quad_coord)
     );
-    memcpy(win->font_color + size
-        , win->font_color
-        , size * sizeof(struct quad_color)
-    );
-    fill_screen(docp, win, 0);
+    fill_screen_glyphs(docp, win, 0);
 }
 
 void
@@ -1670,11 +1753,7 @@ move_scrollback_down(struct window *win, struct document **docp) {
         , win->glyph_mesh + size
         , size * sizeof(struct quad_coord)
     );
-    memcpy(win->font_color
-        , win->font_color + size
-        , size * sizeof(struct quad_color)
-    );
-    fill_screen(docp, win, win->height);
+    fill_screen_glyphs(docp, win, win->height);
 }
 
 void
@@ -1712,7 +1791,6 @@ move_scrollback(struct window *win
     } else {
         dbg_assert(0);
     }
-
 }
 
 struct extern_line *

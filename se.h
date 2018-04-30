@@ -56,6 +56,7 @@ struct selection {
 struct selectarr {
     size_t alloc;
     size_t size;
+    struct selection *focus;
     struct selection data[];
 };
 
