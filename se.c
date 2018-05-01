@@ -45,7 +45,9 @@ static struct window win;
 static struct document *doc;
 static struct diffstack *diff;
 static struct selectarr *selv;
-static struct color hilight = { .r = 2.0, .g = 2.0, .b = 2.0 };
+static struct color color_selection = { .r = 2.f, .g = 2.f, .b = 2.f };
+static struct color color_focus     = { .r = 2.f, .g = 0.f, .b = 0.f };
+static struct color *color_default = colors_table;
 
 uint32_t
 first_glyph(uint8_t *beg, uint8_t *end) {
@@ -680,22 +682,21 @@ void main() {                \n\
 }                            \n\
 ";
 
-static const char *fs_src  = "                      \n\
-#version 130                                        \n\
-in vec4 color;                                      \n\
-in vec2 uv;                                         \n\
-out vec4 fColor;                                    \n\
-uniform sampler2D texture;                          \n\
-void main() {                                       \n\
-    vec4 bg = vec4(0.152, 0.156, 0.13, 1.0);        \n\
-    fColor = texture2D(texture, uv);                \n\
-    if (color.r <= 1.0) {                           \n\
-        fColor = fColor.r * color + bg;             \n\
-    } else {                                        \n\
-        vec4 hilight = vec4(1.0, 1.0, 1.0, 1.0);    \n\
-        fColor = (1.0 - fColor.r) * hilight;        \n\
-    }                                               \n\
-}                                                   \n\
+static const char *fs_src  = "                  \n\
+#version 130                                    \n\
+in vec4 color;                                  \n\
+in vec2 uv;                                     \n\
+out vec4 fColor;                                \n\
+uniform sampler2D texture;                      \n\
+void main() {                                   \n\
+    vec4 bg = vec4(0.152, 0.156, 0.13, 1.0);    \n\
+    fColor = texture2D(texture, uv);            \n\
+    if (color.r <= 1.0) {                       \n\
+        fColor = fColor.r * color + bg;         \n\
+    } else {                                    \n\
+        fColor = (color - 1.0 - fColor.r);      \n\
+    }                                           \n\
+}                                               \n\
 ";
 
 void
@@ -738,22 +739,37 @@ key_special_input(int key, int mx __unused, int my __unused) {
             focus->line++;
             break;
         case GLUT_KEY_UP:
-            if (focus->line) focus->line--;
+            if (focus->line) {
+                focus->line--;
+            }
             break;
         case GLUT_KEY_RIGHT:
             focus->glyph_end++;
             break;
         case GLUT_KEY_LEFT:
-            if (focus->glyph_end) focus->glyph_end--;
+            if (focus->glyph_end) {
+                focus->glyph_end--;
+            }
             break;
         case GLUT_KEY_PAGE_DOWN:
+            focus->line += win.height;
             break;
         case GLUT_KEY_PAGE_UP:
+            if (focus->line < win.height) {
+                focus->line = 0;
+            } else {
+                focus->line -= win.height;
+            }
             break;
         default:
             break;
     }
     screen_reposition(&win, &doc, focus->line, focus->glyph_end);
+
+    if (focus->line > doc->loaded_size) {
+        focus->line = doc->loaded_size;
+        screen_reposition(&win, &doc, focus->line, focus->glyph_end);
+    }
     fill_screen_colors(doc, &win, selv, 0);
     gl_buffers_upload(&win);
     glutPostRedisplay();
@@ -779,14 +795,14 @@ screen_reposition(struct window *win
             return;
         } else if (cursor_line < doc->line_off + win->scrollback_pos) {
             win_lines = doc->line_off + win->scrollback_pos - cursor_line;
-            move_scrollback(win, MV_VERT_UP, win_lines, &doc);
+            move_scrollback(win, MV_VERT_UP, win_lines, docp);
         } else {
             dbg_assert(cursor_line
                 >= doc->line_off + win->scrollback_pos + win->height
             );
             win_lines = cursor_line + 1 - doc->line_off - win->scrollback_pos
                 - win->height;
-            move_scrollback(win, MV_VERT_DOWN, win_lines, &doc);
+            move_scrollback(win, MV_VERT_DOWN, win_lines, docp);
         }
     } else {
         if (doc->glyph_off > cursor_glyph) {
@@ -1499,7 +1515,6 @@ fill_line_glyphs(unsigned i
     }
 }
 
-
 void
 fill_line_colors(unsigned i
     , int utf8
@@ -1511,7 +1526,7 @@ fill_line_colors(unsigned i
     uint8_t *line_curr = line_beg;
     unsigned j = 0;
     unsigned num_glyph = 0;
-    struct color *def = colors_table;
+
     struct colored_span cw = { .color_pos = 0, .size = 0 };
     struct quad_color *qc_curr;
 
@@ -1534,13 +1549,13 @@ fill_line_colors(unsigned i
         line_curr = min(line_curr + from_glyph, line_end);
         while (line_curr != line_end && j != win->width) {
             qc_curr = win->font_color + i * win->width + j;
-            set_quad_color(qc_curr, def);
+            set_quad_color(qc_curr, color_default);
             j++;
         }
     }
     while (j < win->width) {
         qc_curr = win->font_color + i * win->width + j;
-        set_quad_color(qc_curr, def);
+        set_quad_color(qc_curr, color_default);
         j++;
     }
 }
@@ -1646,11 +1661,18 @@ void
 fill_screen_colors(struct document *doc
     , struct window *win
     , struct selectarr *selv
-    , unsigned i
+    , unsigned line
     ) {
     struct line *line_beg = doc->lines + doc->line_off;
     struct line *line_end = doc->lines + doc->loaded_size;
     size_t win_lines = doc->loaded_size - doc->line_off;
+    struct selection *sel_beg = selv->data;
+    struct selection *sel_end = selv->data + selv->size;
+    struct quad_color *qc_curr;
+    unsigned ic;
+    unsigned jc;
+    unsigned i;
+    unsigned j;
 
     ensure(line_beg <= line_end);
 
@@ -1659,7 +1681,7 @@ fill_screen_colors(struct document *doc
     }
     dbg_assert(!(win_lines < win->scrollback_size && !is_fully_loaded(doc)));
 
-    for (; i < min(win_lines, win->scrollback_size); i++) {
+    for (i = line; i < min(win_lines, win->scrollback_size); i++) {
         fill_line_colors(i
             , is_line_utf8(line_beg + i, doc)
             , begin_line(line_beg + i, doc)
@@ -1668,20 +1690,31 @@ fill_screen_colors(struct document *doc
             , win
         );
     }
-    fill_selections_colors(doc, win, selv, i);
-}
-
-void
-fill_selections_colors(struct document *doc
-    , struct window *win
-    , struct selectarr *selv
-    , unsigned i __unused
+    for (; i < win->scrollback_size; i++) {
+        for (j = 0; j < win->width; j++) {
+            qc_curr = win->font_color + i * win->width + j;
+            set_quad_color(qc_curr, color_default);
+        }
+    }
+    while (sel_beg != sel_end && sel_beg->line < doc->line_off) {
+        sel_beg++;
+    }
+    while (sel_beg != sel_end
+        && sel_beg->line < doc->line_off + win->scrollback_size
     ) {
-    unsigned ic = selv->focus->line - doc->line_off;
-    unsigned jc = selv->focus->glyph_end - doc->glyph_off;
-    struct quad_color *qc_curr = win->font_color + ic * win->width + jc;
-
-    set_quad_color(qc_curr, &hilight);
+        ic = selv->focus->line - doc->line_off;
+        jc = selv->focus->glyph_beg - doc->glyph_off;
+        while (jc < win->width) {
+            qc_curr = win->font_color + ic * win->width + jc;
+            if (jc == selv->focus->glyph_end - doc->glyph_off) {
+                set_quad_color(qc_curr, &color_focus);
+                break;
+            }
+            set_quad_color(qc_curr, &color_selection);
+            jc++;
+        }
+        sel_beg++;
+    }
 }
 
 uint8_t *

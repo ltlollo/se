@@ -58,7 +58,6 @@ uint8_t * offsetof_width(struct line *, struct document *, size_t);
 void fill_screen(struct document **, struct window *, unsigned);
 void fill_screen_glyphs(struct document **, struct window *, unsigned);
 void fill_screen_colors(struct document *, struct window *, struct selectarr *, unsigned);
-void fill_selections_colors(struct document *, struct window *, struct selectarr *, unsigned i);
 uint8_t * begin_line(struct line *, struct document *);
 uint8_t * end_line(struct line *, struct document *);
 size_t window_area(struct window *);

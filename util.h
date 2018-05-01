@@ -7,13 +7,15 @@
 #include <stddef.h>
 #include <err.h>
 
-#define __pack __attribute__((packed))
-#define __unused __attribute__((unused))
-#define __align(n) __attribute__((aligned(n)))
+#define __pack       __attribute__((packed))
+#define __unused     __attribute__((unused))
+#define __align(n)   __attribute__((aligned(n)))
+#define __likey(x)   __builtin_expect(!!(x), 1)
+#define __unlikey(x) __builtin_expect(!!(x), 0)
 
 #define xensure_f(f, cond)\
     do {\
-        if (__builtin_expect((cond) == 0, 0)) {\
+        if (__unlikey((cond) == 0)) {\
             f(1, "Invariant violated %s:%d\n  %s",__FILE__, __LINE__, #cond);\
         }\
     } while (0)
