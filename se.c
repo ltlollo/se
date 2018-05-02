@@ -630,7 +630,13 @@ resize_display_matrix(int win_width_px, int win_height_px) {
     unsigned size = win_width * win_height;
 
     gen_display_matrix(&win, win_width, win_height);
-    fill_screen(&doc, &win, 0);
+
+    win.scrollback_pos = 0;
+    doc->line_off = 0;
+    doc->glyph_off = 0;
+    fill_screen_glyphs(&doc, &win, 0);
+    screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
+    fill_screen_colors(doc, &win, selv,  0);
 
     glBufferData(GL_ARRAY_BUFFER
         , (sizeof(struct quad_coord) * 2 + sizeof(struct quad_color)) * size
@@ -642,16 +648,7 @@ resize_display_matrix(int win_width_px, int win_height_px) {
         , sizeof(struct quad_coord) * size
         , win.window_mesh
     );
-    glBufferSubData(GL_ARRAY_BUFFER
-        , sizeof(struct quad_coord) * size
-        , sizeof(struct quad_coord) * size
-        , win.glyph_mesh
-    );
-    glBufferSubData(GL_ARRAY_BUFFER
-        , sizeof(struct quad_coord) * 2 * size
-        , sizeof(struct quad_color) * size
-        , win.font_color
-    );
+    gl_buffers_upload(&win);
     glVertexAttribPointer(gl_id.pos, 2, GL_FLOAT, GL_FALSE, 0, 0);
     glVertexAttribPointer(gl_id.uv, 2, GL_FLOAT, GL_FALSE, 0
         , (void *)(sizeof(struct quad_coord) * size)
@@ -659,7 +656,7 @@ resize_display_matrix(int win_width_px, int win_height_px) {
     glVertexAttribPointer(gl_id.col, 3, GL_FLOAT, GL_FALSE, 0
         , (void *)(sizeof(struct quad_coord) * 2 * size)
     );
-    screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
+
 }
 
 void
@@ -814,6 +811,12 @@ screen_reposition(struct window *win
             while (doc->glyph_off + win->width <= cursor_glyph) {
                 doc->glyph_off += win->width / 2;
             }
+        }
+        if (cursor_line < doc->line_off + win->scrollback_pos
+            || cursor_line >= doc->line_off + win->scrollback_pos + win->height
+        ) {
+            win->scrollback_pos = 0;
+            doc->line_off = cursor_line;
         }
         fill_screen_glyphs(docp, win, 0);
     }
@@ -1703,15 +1706,15 @@ fill_screen_colors(struct document *doc
         && sel_beg->line < doc->line_off + win->scrollback_size
     ) {
         ic = selv->focus->line - doc->line_off;
-        jc = selv->focus->glyph_beg - doc->glyph_off;
-        while (jc < win->width) {
-            qc_curr = win->font_color + ic * win->width + jc;
-            if (jc == selv->focus->glyph_end - doc->glyph_off) {
-                set_quad_color(qc_curr, &color_focus);
-                break;
+        for (jc = selv->focus->glyph_beg; jc < selv->focus->glyph_end; jc++) {
+            qc_curr = win->font_color + ic * win->width + jc - doc->glyph_off;
+            if (jc >= doc->glyph_off && jc < doc->glyph_off + win->width){
+                set_quad_color(qc_curr, &color_selection);
             }
-            set_quad_color(qc_curr, &color_selection);
-            jc++;
+        }
+        qc_curr = win->font_color + ic * win->width + jc - doc->glyph_off;
+        if (jc >= doc->glyph_off && jc < doc->glyph_off + win->width){
+            set_quad_color(qc_curr, &color_focus);
         }
         sel_beg++;
     }
