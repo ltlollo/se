@@ -3,7 +3,7 @@
 
 #include <GL/glew.h>
 #include <GL/gl.h>
-#include <GL/freeglut.h>
+#include <GLFW/glfw3.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +47,7 @@ static struct diffstack *diff;
 static struct selectarr *selv;
 static struct color color_selection = { .r = 2.f, .g = 2.f, .b = 2.f };
 static struct color color_focus     = { .r = 2.f, .g = 0.f, .b = 0.f };
+static struct color color_cursor    = { .r = 2.f, .g = 1.f, .b = 2.f };
 static struct color *color_default = colors_table;
 
 uint32_t
@@ -615,12 +616,23 @@ init_diffstack(struct diffstack **ds, size_t alloc) {
 }
 
 void
-window_render(void) {
+window_render(GLFWwindow *window) {
     unsigned size = win.width * win.height;
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLES, 0, 6 * size);
-    glutSwapBuffers();
+    glfwSwapBuffers(window);
+}
+
+void
+render_loop(void) {
+    GLFWwindow *window = gl_id.window;
+
+    while (!glfwWindowShouldClose(window))
+    {
+        glfwWaitEvents();
+    }
+    glfwTerminate();
 }
 
 void
@@ -660,9 +672,10 @@ resize_display_matrix(int win_width_px, int win_height_px) {
 }
 
 void
-window_resize(int win_width_px, int win_height_px) {
+window_resize(GLFWwindow *window, int win_width_px, int win_height_px) {
     glViewport(0, 0, win_width_px, win_height_px);
     resize_display_matrix(win_width_px, win_height_px);
+    window_render(window);
 }
 
 static const char *vs_src = "\n\
@@ -722,36 +735,69 @@ key_input(unsigned char key, int x __unused, int y __unused) {
     }
     fill_screen(&doc, &win, 0);
     gl_buffers_upload(&win);
-    glutPostRedisplay();
+    window_render(gl_id.window);
 }
 
+struct selectarr *
+reserve_selectarr(struct selectarr **selv, size_t size) {
+    struct selectarr *res = *selv;
+    size_t alloc;
 
+    if (res->size + size > res->alloc) {
+        alloc = res->size + res->size / 2 + size;
+        res = reallocflexarr((void **)selv
+            , sizeof(struct selectarr)
+            , alloc
+            , sizeof(struct selection)
+        );
+        ensure(res);
+        res->alloc = alloc;
+    }
+    return res;
+}
 
 void
-key_special_input(int key, int mx __unused, int my __unused) {
+key_special_input(GLFWwindow* window
+    , int key
+    , int scancode __unused
+    , int action
+    , int mods
+    ) {
     struct selection *focus = selv->focus;
 
+    if (action != GLFW_PRESS && action != GLFW_REPEAT) {
+        return;
+    }
     switch (key) {
-        case GLUT_KEY_DOWN:
+        case GLFW_KEY_Q:
+            exit(0);
+        case GLFW_KEY_DOWN:
+            if (mods & GLFW_MOD_SHIFT) {
+                selv = reserve_selectarr(&selv, 1);
+                selv->focus = selv->data + selv->size;
+                memcpy(selv->focus, selv->focus - 1, sizeof(struct selection));
+                selv->size++;
+                focus = selv->focus;
+            }
             focus->line++;
             break;
-        case GLUT_KEY_UP:
+        case GLFW_KEY_UP:
             if (focus->line) {
                 focus->line--;
             }
             break;
-        case GLUT_KEY_RIGHT:
+        case GLFW_KEY_RIGHT:
             focus->glyph_end++;
             break;
-        case GLUT_KEY_LEFT:
+        case GLFW_KEY_LEFT:
             if (focus->glyph_end) {
                 focus->glyph_end--;
             }
             break;
-        case GLUT_KEY_PAGE_DOWN:
+        case GLFW_KEY_PAGE_DOWN:
             focus->line += win.height;
             break;
-        case GLUT_KEY_PAGE_UP:
+        case GLFW_KEY_PAGE_UP:
             if (focus->line < win.height) {
                 focus->line = 0;
             } else {
@@ -769,7 +815,7 @@ key_special_input(int key, int mx __unused, int my __unused) {
     }
     fill_screen_colors(doc, &win, selv, 0);
     gl_buffers_upload(&win);
-    glutPostRedisplay();
+    window_render(window);
 }
 
 void
@@ -896,19 +942,25 @@ str_intercalate(char *buf
 }
 
 int
-win_init(int argc, char *argv[]) {
-    static char window_title[128];
+window_init(int argc, char *argv[]) {
+    static char title[128];
+    GLFWmonitor* mon;
+    const GLFWvidmode* vm;
 
-    str_intercalate(window_title, sizeof(window_title) - 1, argv, argc, ' '); 
-    glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA);
-    glutCreateWindow(window_title);
-    glutReshapeFunc(window_resize);
-    glutDisplayFunc(window_render);
-    glutKeyboardFunc(key_input);
-    glutSpecialFunc(key_special_input);
+    str_intercalate(title, sizeof(title) - 1, argv, argc, ' '); 
+
+    glfwInit();
+    mon = glfwGetPrimaryMonitor();
+    vm = glfwGetVideoMode(mon);
+
+    gl_id.window = glfwCreateWindow(vm->width, vm->height, title, NULL, NULL);
+    glfwMakeContextCurrent(gl_id.window);
+    glfwSetWindowSizeCallback(gl_id.window, window_resize);
+    glfwSetKeyCallback(gl_id.window, key_special_input);
+    glfwSetWindowRefreshCallback(gl_id.window, window_render);
+
     xensure(glewInit() == GLEW_OK);
-    glClearColor(0.152, 0.156, 0.13, 1.0);
+
     return 0;
 }
 
@@ -1705,8 +1757,8 @@ fill_screen_colors(struct document *doc
     while (sel_beg != sel_end
         && sel_beg->line < doc->line_off + win->scrollback_size
     ) {
-        ic = selv->focus->line - doc->line_off;
-        for (jc = selv->focus->glyph_beg; jc < selv->focus->glyph_end; jc++) {
+        ic = sel_beg->line - doc->line_off;
+        for (jc = sel_beg->glyph_beg; jc < sel_beg->glyph_end; jc++) {
             qc_curr = win->font_color + ic * win->width + jc - doc->glyph_off;
             if (jc >= doc->glyph_off && jc < doc->glyph_off + win->width){
                 set_quad_color(qc_curr, &color_selection);
@@ -1714,7 +1766,10 @@ fill_screen_colors(struct document *doc
         }
         qc_curr = win->font_color + ic * win->width + jc - doc->glyph_off;
         if (jc >= doc->glyph_off && jc < doc->glyph_off + win->width){
-            set_quad_color(qc_curr, &color_focus);
+            set_quad_color(qc_curr, sel_beg == selv->focus
+                ? &color_focus
+                : &color_cursor
+            );
         }
         sel_beg++;
     }
@@ -2009,9 +2064,9 @@ main(int argc, char *argv[]) {
     xensure(init_diffstack(&diff, 0x1000) == 0);
     xensure(init_doc(fname, &doc) == 0);
     xensure(init_sel(16, &selv) == 0);
-    xensure(win_init(argc, argv) == 0);
+    xensure(window_init(argc, argv) == 0);
     xensure(gl_pipeline_init() == 0);
+    render_loop();
 
-    glutMainLoop();
     return 0;
 }
