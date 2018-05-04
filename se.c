@@ -45,9 +45,9 @@ static struct window win;
 static struct document *doc;
 static struct diffstack *diff;
 static struct selectarr *selv;
-static struct color color_selection = { .r = 2.f, .g = 2.f, .b = 2.f };
-static struct color color_focus     = { .r = 2.f, .g = 0.f, .b = 0.f };
-static struct color color_cursor    = { .r = 2.f, .g = 2.f, .b = 0.f };
+static struct color color_selection = { .r = 2.0f, .g = 2.0f, .b = 2.0f };
+static struct color color_focus     = { .r = 2.0f, .g = 0.0f, .b = 0.0f };
+static struct color color_cursor    = { .r = 1.8f, .g = 1.4f, .b = 1.8f };
 static struct color *color_default = colors_table;
 
 uint32_t
@@ -729,9 +729,11 @@ key_input(unsigned char key, int x __unused, int y __unused) {
 struct selectarr *
 reserve_selectarr(struct selectarr **selv, size_t size) {
     struct selectarr *res = *selv;
+    size_t focus_pos;
     size_t alloc;
 
     if (res->size + size > res->alloc) {
+        focus_pos = res->focus - res->data;
         alloc = res->size + res->size / 2 + size;
         res = reallocflexarr((void **)selv
             , sizeof(struct selectarr)
@@ -740,58 +742,117 @@ reserve_selectarr(struct selectarr **selv, size_t size) {
         );
         ensure(res);
         res->alloc = alloc;
+        res->focus = res->data + focus_pos;
     }
     return res;
 }
 
 void
 key_special_input(int key, int mx __unused, int my __unused) {
-    struct selection *focus = selv->focus;
+    struct selection *sel_beg;
     int mod = glutGetModifiers();
+    size_t delta;
 
     switch (key) {
         case GLUT_KEY_DOWN:
-            if (mod & GLUT_ACTIVE_CTRL) {
-                selv = reserve_selectarr(&selv, 1);
-                selv->focus = selv->data + selv->size;
-                memcpy(selv->focus, selv->focus - 1, sizeof(struct selection));
-                selv->size++;
-                focus = selv->focus;
+            load_lines(1, &doc);
+            selv->focus = selv->data + selv->size - 1;
+            if (doc->loaded_size == selv->focus->line) {
+                break;
             }
-            focus->line++;
+            if (mod & GLUT_ACTIVE_SHIFT) {
+                selv = reserve_selectarr(&selv, 1);
+                memcpy(selv->data + selv->size
+                    , selv->data + selv->size - 1
+                    , sizeof(struct selection)
+                );
+                selv->focus = selv->data + selv->size++;
+                selv->focus->line++;
+            } else {
+                sel_beg = selv->data;
+                while (sel_beg != selv->data + selv->size) {
+                    sel_beg->line++;
+                    sel_beg++;
+                }
+            }
             break;
         case GLUT_KEY_UP:
-            if (focus->line) {
-                focus->line--;
+            selv->focus = selv->data;
+            if (selv->focus->line == 0) {
+                break;
+            }
+            if (mod & GLUT_ACTIVE_SHIFT) {
+                selv = reserve_selectarr(&selv, 1);
+                memmove(selv->data + 1
+                    , selv->data
+                    , sizeof(struct selection) * selv->size++
+                );
+                selv->focus = selv->data;
+                selv->focus->line--;
+            } else {
+                sel_beg = selv->data;
+                while (sel_beg != selv->data + selv->size) {
+                    sel_beg->line--;
+                    sel_beg++;
+                }
             }
             break;
         case GLUT_KEY_RIGHT:
-            focus->glyph_end++;
+            if ((mod & GLUT_ACTIVE_SHIFT) == 0) {
+                sel_beg = selv->data;
+                while (sel_beg != selv->data + selv->size) {
+                    sel_beg->glyph_beg++;
+                    sel_beg++;
+                }
+            }
+            sel_beg = selv->data;
+            while (sel_beg != selv->data + selv->size) {
+
+                sel_beg->glyph_end++;
+                sel_beg++;
+            }
             break;
         case GLUT_KEY_LEFT:
-            if (focus->glyph_end) {
-                focus->glyph_end--;
+            if ((mod & GLUT_ACTIVE_SHIFT) == 0) {
+                sel_beg = selv->data;
+                while (sel_beg != selv->data + selv->size) {
+                    if (sel_beg->glyph_beg) {
+                        sel_beg->glyph_beg--;
+                    }
+                    sel_beg++;
+                }
+            }
+            sel_beg = selv->data;
+            while (sel_beg != selv->data + selv->size) {
+                if (sel_beg->glyph_beg != sel_beg->glyph_end) {
+                    sel_beg->glyph_end--;
+                }
+                sel_beg++;
             }
             break;
         case GLUT_KEY_PAGE_DOWN:
-            focus->line += win.height;
+            selv->focus = selv->data + selv->size - 1;
+            load_lines(win.height, &doc);
+            delta = min(doc->loaded_size - selv->focus->line, win.height);
+            sel_beg = selv->data;
+            while (sel_beg != selv->data + selv->size) {
+                sel_beg->line += delta;
+                sel_beg++;
+            }
             break;
         case GLUT_KEY_PAGE_UP:
-            if (focus->line < win.height) {
-                focus->line = 0;
-            } else {
-                focus->line -= win.height;
+            selv->focus = selv->data;
+            delta = min(selv->focus->line, win.height);
+            sel_beg = selv->data;
+            while (sel_beg != selv->data + selv->size) {
+                sel_beg->line -= delta;
+                sel_beg++;
             }
             break;
         default:
             break;
     }
-    screen_reposition(&win, &doc, focus->line, focus->glyph_end);
-
-    if (focus->line > doc->loaded_size) {
-        focus->line = doc->loaded_size;
-        screen_reposition(&win, &doc, focus->line, focus->glyph_end);
-    }
+    screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
     fill_screen_colors(doc, &win, selv, 0);
     gl_buffers_upload(&win);
     glutPostRedisplay();
