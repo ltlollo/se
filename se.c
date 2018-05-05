@@ -50,17 +50,14 @@ static struct color color_focus     = { .r = 2.0f, .g = 0.0f, .b = 0.0f };
 static struct color color_cursor    = { .r = 1.8f, .g = 1.4f, .b = 1.8f };
 static struct color *color_default = colors_table;
 
+#include "input.c"
+
 uint32_t
 first_glyph(uint8_t *beg, uint8_t *end) {
     if (next_utf8_or_null(beg, end) != NULL) {
-        return glyph_from_utf8(&beg);
+        return iter_glyph_from_utf8(&beg);
     }
     return *beg;
-}
-
-int
-always(uint32_t glyph __unused) {
-    return 1;
 }
 
 int
@@ -697,35 +694,6 @@ void main() {                                   \n\
 }                                               \n\
 ";
 
-void
-key_input(unsigned char key, int x __unused, int y __unused) {
-
-    switch (key) {
-        case 'd':
-            diff_line_insert(&diff, 0, doc->lines, doc, "asd", 3);
-            break;
-        case 's':
-            diff_line_remove(&diff, 0, doc->lines, doc, 3);
-            break;
-        case 'u':
-            diffstack_undo(diff, doc);
-            break;
-        case 'p':
-            diff_line_split(&diff, 0, 0, &doc);
-            break;
-        case 'm':
-            diff_line_merge(&diff, 0, 1, &doc);
-            break;
-        case 'q': case 27:
-            exit(0);
-        default:
-            return;
-    }
-    fill_screen(&doc, &win, 0);
-    gl_buffers_upload(&win);
-    glutPostRedisplay();
-}
-
 struct selectarr *
 reserve_selectarr(struct selectarr **selv, size_t size) {
     struct selectarr *res = *selv;
@@ -745,117 +713,6 @@ reserve_selectarr(struct selectarr **selv, size_t size) {
         res->focus = res->data + focus_pos;
     }
     return res;
-}
-
-void
-key_special_input(int key, int mx __unused, int my __unused) {
-    struct selection *sel_beg;
-    int mod = glutGetModifiers();
-    size_t delta;
-
-    switch (key) {
-        case GLUT_KEY_DOWN:
-            load_lines(1, &doc);
-            selv->focus = selv->data + selv->size - 1;
-            if (doc->loaded_size == selv->focus->line) {
-                break;
-            }
-            if (mod & GLUT_ACTIVE_SHIFT) {
-                selv = reserve_selectarr(&selv, 1);
-                memcpy(selv->data + selv->size
-                    , selv->data + selv->size - 1
-                    , sizeof(struct selection)
-                );
-                selv->focus = selv->data + selv->size++;
-                selv->focus->line++;
-            } else {
-                sel_beg = selv->data;
-                while (sel_beg != selv->data + selv->size) {
-                    sel_beg->line++;
-                    sel_beg++;
-                }
-            }
-            break;
-        case GLUT_KEY_UP:
-            selv->focus = selv->data;
-            if (selv->focus->line == 0) {
-                break;
-            }
-            if (mod & GLUT_ACTIVE_SHIFT) {
-                selv = reserve_selectarr(&selv, 1);
-                memmove(selv->data + 1
-                    , selv->data
-                    , sizeof(struct selection) * selv->size++
-                );
-                selv->focus = selv->data;
-                selv->focus->line--;
-            } else {
-                sel_beg = selv->data;
-                while (sel_beg != selv->data + selv->size) {
-                    sel_beg->line--;
-                    sel_beg++;
-                }
-            }
-            break;
-        case GLUT_KEY_RIGHT:
-            if ((mod & GLUT_ACTIVE_SHIFT) == 0) {
-                sel_beg = selv->data;
-                while (sel_beg != selv->data + selv->size) {
-                    sel_beg->glyph_beg++;
-                    sel_beg++;
-                }
-            }
-            sel_beg = selv->data;
-            while (sel_beg != selv->data + selv->size) {
-
-                sel_beg->glyph_end++;
-                sel_beg++;
-            }
-            break;
-        case GLUT_KEY_LEFT:
-            if ((mod & GLUT_ACTIVE_SHIFT) == 0) {
-                sel_beg = selv->data;
-                while (sel_beg != selv->data + selv->size) {
-                    if (sel_beg->glyph_beg) {
-                        sel_beg->glyph_beg--;
-                    }
-                    sel_beg++;
-                }
-            }
-            sel_beg = selv->data;
-            while (sel_beg != selv->data + selv->size) {
-                if (sel_beg->glyph_beg != sel_beg->glyph_end) {
-                    sel_beg->glyph_end--;
-                }
-                sel_beg++;
-            }
-            break;
-        case GLUT_KEY_PAGE_DOWN:
-            selv->focus = selv->data + selv->size - 1;
-            load_lines(win.height, &doc);
-            delta = min(doc->loaded_size - selv->focus->line, win.height);
-            sel_beg = selv->data;
-            while (sel_beg != selv->data + selv->size) {
-                sel_beg->line += delta;
-                sel_beg++;
-            }
-            break;
-        case GLUT_KEY_PAGE_UP:
-            selv->focus = selv->data;
-            delta = min(selv->focus->line, win.height);
-            sel_beg = selv->data;
-            while (sel_beg != selv->data + selv->size) {
-                sel_beg->line -= delta;
-                sel_beg++;
-            }
-            break;
-        default:
-            break;
-    }
-    screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
-    fill_screen_colors(doc, &win, selv, 0);
-    gl_buffers_upload(&win);
-    glutPostRedisplay();
 }
 
 void
@@ -1399,7 +1256,40 @@ load_lines(size_t nlines, struct document **doc) {
 }
 
 uint32_t
-glyph_from_utf8(uint8_t **line) {
+glyph_from_utf8(uint8_t *curr) {
+
+    if ((*curr & 0x80) == 0x00) {
+        return 0u
+            | curr[0]
+            ;
+    }
+    if ((*curr & 0xe0) == 0xc0) {
+        return 0u
+            | ((curr[0] & 0x1f) << 0x06)
+            | ((curr[1] & 0x3f) << 0x00)
+            ;
+    }
+    if ((*curr & 0xf0) == 0xe0) {
+        return 0u
+            | ((curr[0] & 0x0f) << 0x0c)
+            | ((curr[1] & 0x3f) << 0x06)
+            | ((curr[2] & 0x3f) << 0x00)
+            ;
+    }
+    if ((*curr & 0xf8) == 0xf0) {
+        return 0u
+            | ((curr[0] & 0x07) << 0x12)
+            | ((curr[1] & 0x3f) << 0x0c)
+            | ((curr[2] & 0x3f) << 0x06)
+            | ((curr[3] & 0x3f) << 0x00)
+            ;
+    }
+    dbg_assert(0);
+    return 0u;
+}
+
+uint32_t
+iter_glyph_from_utf8(uint8_t **line) {
     uint8_t *curr = *line;
 
     if ((*curr & 0x80) == 0x00) {
@@ -1466,6 +1356,7 @@ resize_document_by(size_t size, struct document **doc) {
 
 int
 init_sel(size_t alloc, struct selectarr **selv) {
+    struct selectarr *res;
     struct selection *sel;
 
     ensure(alloc > 0);
@@ -1474,13 +1365,14 @@ init_sel(size_t alloc, struct selectarr **selv) {
         , alloc
         , sizeof(struct selection)
     ) != NULL);
-    sel = (*selv)->data;
+    res = *selv;
+    sel = res->data;
     sel->line = 0;
     sel->glyph_beg = 0;
     sel->glyph_end = 0;
-    (*selv)->focus = (*selv)->data;
-    (*selv)->alloc = alloc;
-    (*selv)->size = 1;
+    res->focus = res->data;
+    res->alloc = alloc;
+    res->size = 1;
     return 0;
 }
 
@@ -1583,7 +1475,7 @@ fill_line_glyphs(unsigned i
 
     if (utf8) {
         while (line_curr != line_end && j != win->width) {
-            glyph = glyph_from_utf8(&line_curr);
+            glyph = iter_glyph_from_utf8(&line_curr);
             dbg_assert(line_curr <= line_end);
             if (num_glyph++ < from_glyph) {
                 continue;
@@ -1662,6 +1554,17 @@ next_utf8_char(uint8_t *curr) {
     } else {
         dbg_assert(0);
     }
+    return curr;
+}
+
+uint8_t *
+prev_utf8_char(uint8_t *curr) {
+    uint8_t *end = curr;
+
+    do{
+        curr--;
+    } while ((*curr & 0xc0) == 0x80);
+    dbg_assert(end - curr <= 4);
     return curr;
 }
 

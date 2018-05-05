@@ -7,14 +7,39 @@
 #include "kcol.def.h"
 
 int
-is_tok(uint32_t c) {
+is_alpha(uint32_t c) {
     if (c >= 'a' && c <= 'z') {
         return 1;
     }
     if (c >= 'A' && c <= 'Z') {
         return 1;
     }
-    if (c >= '0' && c <= '9') {
+    return 0;
+}
+
+int is_char(uint32_t c) {
+    return c < 0x10000;
+}
+
+int
+is_digit(uint32_t c) {
+    return c >= '0' && c <= '9';
+}
+
+int
+is_alnum(uint32_t c) {
+    if (is_alpha(c)) {
+        return 1;
+    }
+    if (is_digit(c)) {
+        return 1;
+    }
+    return 0;
+}
+
+int
+is_tok(uint32_t c) {
+    if (is_alnum(c)) {
         return 1;
     }
     if (c == '_') {
@@ -24,9 +49,10 @@ is_tok(uint32_t c) {
 }
 
 int
-is_digit(uint32_t c) {
-    return c >= '0' && c <= '9';
+is_space(uint32_t c) {
+    return c == '\t' || c == ' ';
 }
+
 
 int
 is_hex(uint32_t c) {
