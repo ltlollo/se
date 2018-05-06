@@ -6,6 +6,8 @@
 
 #include <stddef.h>
 #include <err.h>
+#include <stdio.h>
+
 
 #define __pack       __attribute__((packed))
 #define __unused     __attribute__((unused))
@@ -13,12 +15,25 @@
 #define __likey(x)   __builtin_expect(!!(x), 1)
 #define __unlikey(x) __builtin_expect(!!(x), 0)
 
+#ifdef NDEBUG
 #define xensure_f(f, cond)\
     do {\
         if (__unlikey((cond) == 0)) {\
             f(1, "Invariant violated %s:%d\n  %s",__FILE__, __LINE__, #cond);\
         }\
     } while (0)
+#else
+#define xensure_f(f, cond)\
+    do{\
+        if (__unlikey((cond) == 0)) {\
+            fprintf(stderr, "Invariant violated %s:%d\n  %s"\
+                ,__FILE__, __LINE__, #cond\
+            );\
+            __asm__ volatile ("int $3\n\t");\
+        }\
+    } while (0)
+#endif
+
 
 #define xensure(cond)         xensure_f(errx, cond)
 #define xensure_errno(cond)   xensure_f(err, cond)
