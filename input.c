@@ -1,6 +1,5 @@
 void
 key_input(unsigned char key, int x __unused, int y __unused) {
-    int mod = glutGetModifiers();
 
     switch (key) {
         case 'd':
@@ -25,29 +24,27 @@ key_input(unsigned char key, int x __unused, int y __unused) {
     }
     fill_screen(&doc, &win, 0);
     gl_buffers_upload(&win);
-    glutPostRedisplay();
 }
 
 void
-key_special_input(int key, int mx __unused, int my __unused) {
-    int mod = glutGetModifiers();
+key_special_input(int key, int mod) {
     struct selection *sel_curr;
     size_t delta;
 
     switch (key) {
-        case GLUT_KEY_DOWN:
+        case SDLK_DOWN:
             alt_cursors_down(&selv, mod, &doc);
             break;
-        case GLUT_KEY_UP:
+        case SDLK_UP:
             alt_cursors_up(&selv, mod);
             break;
-        case GLUT_KEY_RIGHT:
+        case SDLK_RIGHT:
             move_cursors_right(selv, mod, doc);
             break;
-        case GLUT_KEY_LEFT:
+        case SDLK_LEFT:
             move_cursors_left(selv, mod, doc);
             break;
-        case GLUT_KEY_PAGE_DOWN:
+        case SDLK_PAGEDOWN:
             selv->focus = selv->data + selv->size - 1;
             load_lines(win.height, &doc);
             delta = min(doc->loaded_size - selv->focus->line, win.height);
@@ -57,7 +54,7 @@ key_special_input(int key, int mx __unused, int my __unused) {
                 sel_curr++;
             }
             break;
-        case GLUT_KEY_PAGE_UP:
+        case SDLK_PAGEUP:
             selv->focus = selv->data;
             delta = min(selv->focus->line, win.height);
             sel_curr = selv->data;
@@ -72,7 +69,6 @@ key_special_input(int key, int mx __unused, int my __unused) {
     screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
     fill_screen_colors(doc, &win, selv, 0);
     gl_buffers_upload(&win);
-    glutPostRedisplay();
 }
 
 void
@@ -81,12 +77,12 @@ alt_cursors_down(struct selectarr **selvp, int mod, struct document **docp) {
     struct selectarr *selv = *selvp;
     struct selection *sel_curr;
 
-    if ((mod & GLUT_ACTIVE_SHIFT) == 0
+    if ((mod & KMOD_LSHIFT) == 0
         && selv->focus != selv->data + selv->size - 1) {
         selv->focus = selv->data + selv->size - 1;
         return;
     }
-    if ((mod & GLUT_ACTIVE_SHIFT)
+    if ((mod & KMOD_LSHIFT)
         && selv->focus == selv->data + selv->size - 1
     ) {
         doc = load_lines(1, docp);
@@ -100,7 +96,7 @@ alt_cursors_down(struct selectarr **selvp, int mod, struct document **docp) {
         );
         selv->focus = selv->data + selv->size++;
         selv->focus->line++;
-    } else if ((mod & GLUT_ACTIVE_SHIFT)
+    } else if ((mod & KMOD_LSHIFT)
         && selv->focus == selv->data
     ) {
         memmove(selv->data
@@ -121,13 +117,13 @@ alt_cursors_up(struct selectarr **selvp, int mod) {
     struct selectarr *selv = *selvp;
     struct selection *sel_curr;
 
-    if ((mod & GLUT_ACTIVE_SHIFT) == 0
+    if ((mod & KMOD_LSHIFT) == 0
         && selv->focus != selv->data) {
         selv->focus = selv->data;
         return;
     }
 
-    if ((mod & GLUT_ACTIVE_SHIFT)
+    if ((mod & KMOD_LSHIFT)
         && selv->focus == selv->data
     ) {
         if (selv->focus->line == 0) {
@@ -142,7 +138,7 @@ alt_cursors_up(struct selectarr **selvp, int mod) {
         selv->focus->line--;
         selv->focus->glyph_beg = 0;
         selv->focus->glyph_end = 0;
-    } else if ((mod & GLUT_ACTIVE_SHIFT)
+    } else if ((mod & KMOD_LSHIFT)
         && selv->focus == selv->data + selv->size - 1
     ) {
         if (selv->size > 1) {
@@ -172,7 +168,7 @@ move_cursors_right(struct selectarr *selv, int mod, struct document *doc) {
     size_t span;
     size_t i;
 
-    if (mod & GLUT_ACTIVE_CTRL) {
+    if (mod & KMOD_LCTRL) {
         sel_curr = selv->data;
         while (sel_curr != selv->data + selv->size) {
             dbg_assert(sel_curr->line <= doc->loaded_size);
@@ -206,7 +202,7 @@ move_cursors_right(struct selectarr *selv, int mod, struct document *doc) {
                 sel_curr->glyph_end++;
                 span++;
             }
-            if ((mod & GLUT_ACTIVE_SHIFT) == 0) {
+            if ((mod & KMOD_LSHIFT) == 0) {
                 sel_curr->glyph_beg += span;
             }
             sel_curr++;
@@ -217,7 +213,7 @@ move_cursors_right(struct selectarr *selv, int mod, struct document *doc) {
             sel_curr->glyph_end++;
             sel_curr++;
         }
-        if ((mod & GLUT_ACTIVE_SHIFT) == 0) {
+        if ((mod & KMOD_LSHIFT) == 0) {
             sel_curr = selv->data;
             while (sel_curr != selv->data + selv->size) {
                 sel_curr->glyph_beg++;
@@ -239,7 +235,7 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
     size_t span;
     size_t i;
 
-    if (mod & GLUT_ACTIVE_CTRL) {
+    if (mod & KMOD_LCTRL) {
         sel_curr = selv->data;
         while (sel_curr != selv->data + selv->size) {
             dbg_assert(sel_curr->line <= doc->loaded_size);
@@ -280,7 +276,7 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
                 sel_curr->glyph_end--;
                 span++;
             }
-            if ((mod & GLUT_ACTIVE_SHIFT) == 0) {
+            if ((mod & KMOD_LSHIFT) == 0) {
                 sel_curr->glyph_beg -= min(span, sel_curr->glyph_beg);
             }
             if (sel_curr->glyph_beg > sel_curr->glyph_end) {
@@ -289,18 +285,21 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
             sel_curr++;
         }
     } else {
-        sel_curr = selv->data;
-        while (sel_curr != selv->data + selv->size) {
-            if (sel_curr->glyph_end) {
-                sel_curr->glyph_end--;
+
+        if (mod & KMOD_LSHIFT) {
+            sel_curr = selv->data;
+            while (sel_curr != selv->data + selv->size) {
+                if (sel_curr->glyph_end > sel_curr->glyph_beg) {
+                    sel_curr->glyph_end--;
+                }
+                sel_curr++;
             }
-            sel_curr++;
-        }
-        if ((mod & GLUT_ACTIVE_SHIFT) == 0) {
+        } else {
             sel_curr = selv->data;
             while (sel_curr != selv->data + selv->size) {
                 if (sel_curr->glyph_beg) {
                     sel_curr->glyph_beg--;
+                    sel_curr->glyph_end--;
                 }
                 sel_curr++;
             }

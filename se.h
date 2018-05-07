@@ -4,12 +4,13 @@
 #ifndef SE_H
 #define SE_H
 
-#include <GLFW/glfw3.h>
+#include <SDL2/SDL.h>
 
 typedef int(*class_fn)(uint32_t);
 
 struct gl_data {
-    GLFWwindow *window;
+    SDL_Window *window;
+    SDL_GLContext glcontext;
     GLuint vao;
     GLuint tbo;
     GLuint vbo;

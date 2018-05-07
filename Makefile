@@ -1,4 +1,4 @@
-LDFLAGS			+= -lGL -lGLEW -lGLU -lglut
+LDFLAGS			+= -lGL -lGLEW -lGLU -lSDL2
 CFLAGS			:= -std=c11  -Wall -Wextra -Wno-pointer-sign -fPIC
 DEBUG_CFLAGS	:= ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
 RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \

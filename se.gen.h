@@ -1,3 +1,4 @@
+void window_swap_buffers();
 uint32_t first_glyph(uint8_t *, uint8_t *);
 int is_same_class(uint32_t, uint32_t);
 void window_render();
@@ -57,6 +58,7 @@ struct extern_line * convert_line_external(struct line *, struct document *);
 struct document * insert_empty_lines(size_t, size_t, struct document **);
 void copy_extern_line(struct line *, uint8_t *, size_t, struct document *);
 void insert_n_line(size_t, size_t, size_t, struct document **);
+void render_loop();
 int is_alpha(uint32_t);
 int is_char(uint32_t);
 int is_digit(uint32_t);
@@ -84,7 +86,7 @@ void diff_line_insert(struct diffstack **, size_t, struct line *, struct documen
 void diff_line_remove(struct diffstack **, size_t, struct line *, struct document *, size_t);
 void diff_line_merge(struct diffstack **, size_t, size_t, struct document **);
 void key_input(unsigned char, int x, int y);
-void key_special_input(int, int mx, int my);
+void key_special_input(int, int);
 void alt_cursors_down(struct selectarr **, int, struct document **);
 void alt_cursors_up(struct selectarr **, int);
 void move_cursors_right(struct selectarr *, int, struct document *);

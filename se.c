@@ -3,7 +3,7 @@
 
 #include <GL/glew.h>
 #include <GL/gl.h>
-#include <GL/freeglut.h>
+#include <SDL2/SDL.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,6 +53,11 @@ static struct color *color_default   = colors_table;
 #include "diff.c"
 #include "input.c"
 
+void
+window_swap_buffers(void) {
+    SDL_GL_SwapWindow(gl_id.window);
+}
+
 uint32_t
 first_glyph(uint8_t *beg, uint8_t *end) {
     if (next_utf8_or_null(beg, end) != NULL) {
@@ -92,7 +97,7 @@ window_render(void) {
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLES, 0, 6 * size);
-    glutSwapBuffers();
+    window_swap_buffers();
 }
 
 void
@@ -128,7 +133,6 @@ resize_display_matrix(int win_width_px, int win_height_px) {
     glVertexAttribPointer(gl_id.col, 3, GL_FLOAT, GL_FALSE, 0
         , (void *)(sizeof(struct quad_coord) * 2 * size)
     );
-
 }
 
 void
@@ -317,14 +321,18 @@ win_init(int argc, char *argv[]) {
     static char window_title[128];
 
     str_intercalate(window_title, sizeof(window_title) - 1, argv, argc, ' '); 
-    glutInit(&argc, argv);
-    glutInitDisplayMode(GLUT_DEPTH | GLUT_DOUBLE | GLUT_RGBA);
-    glutCreateWindow(window_title);
-    glutReshapeFunc(window_resize);
-    glutDisplayFunc(window_render);
-    glutKeyboardFunc(key_input);
-    glutSpecialFunc(key_special_input);
+
+    SDL_Init(SDL_INIT_VIDEO);
+    gl_id.window = SDL_CreateWindow(window_title
+        , SDL_WINDOWPOS_UNDEFINED
+        , SDL_WINDOWPOS_UNDEFINED
+        , 0
+        , 0
+        , SDL_WINDOW_OPENGL | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE
+    );
+    gl_id.glcontext = SDL_GL_CreateContext(gl_id.window);
     xensure(glewInit() == GLEW_OK);
+
     glClearColor(0.152, 0.156, 0.13, 1.0);
     return 0;
 }
@@ -696,10 +704,10 @@ load_lines(size_t nlines, struct document **doc) {
     );
 
     if (res->file.size == 0) {
-        return 0;
+        return res;
     }
     if (trampoline->ptr == doc_end) {
-        return 0;
+        return res;
     }
     ensure(resize_document_by(nlines, doc) != NULL);
     res = *doc;
@@ -1375,6 +1383,39 @@ insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
     beg->size = fst_end - fst_beg;
 }
 
+void
+render_loop(void) {
+    while (1) {
+        SDL_Event event;
+        while (SDL_PollEvent(&event)) {
+            switch(event.type) {
+                case SDL_KEYDOWN:
+                    switch (event.key.keysym.sym) {
+                        case SDLK_q:
+                            exit(0);
+                        case SDLK_UP:
+                        case SDLK_DOWN:
+                        case SDLK_RIGHT:
+                        case SDLK_LEFT:
+                        case SDLK_PAGEUP:
+                        case SDLK_PAGEDOWN:
+                            key_special_input(event.key.keysym.sym
+                                , event.key.keysym.mod
+                            );
+                            break;
+                    }
+                    break;
+                case SDL_WINDOWEVENT:
+                    if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
+                        window_resize(event.window.data1, event.window.data2);
+                    }
+                    break;
+            }
+        }
+        window_render();
+    }
+}
+
 int
 main(int argc, char *argv[]) {
     char *fname = "se.c";
@@ -1388,6 +1429,6 @@ main(int argc, char *argv[]) {
     xensure(win_init(argc, argv) == 0);
     xensure(gl_pipeline_init() == 0);
 
-    glutMainLoop();
+    render_loop();
     return 0;
 }
