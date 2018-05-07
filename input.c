@@ -1,4 +1,167 @@
 void
+key_input(unsigned char key, int x __unused, int y __unused) {
+    int mod = glutGetModifiers();
+
+    switch (key) {
+        case 'd':
+            diff_line_insert(&diff, 0, doc->lines, doc, "asd", 3);
+            break;
+        case 's':
+            diff_line_remove(&diff, 0, doc->lines, doc, 3);
+            break;
+        case 'u':
+            diffstack_undo(diff, doc);
+            break;
+        case 'p':
+            diff_line_split(&diff, 0, 0, &doc);
+            break;
+        case 'm':
+            diff_line_merge(&diff, 0, 1, &doc);
+            break;
+        case 'q': case 27:
+            exit(0);
+        default:
+            return;
+    }
+    fill_screen(&doc, &win, 0);
+    gl_buffers_upload(&win);
+    glutPostRedisplay();
+}
+
+void
+key_special_input(int key, int mx __unused, int my __unused) {
+    int mod = glutGetModifiers();
+    struct selection *sel_curr;
+    size_t delta;
+
+    switch (key) {
+        case GLUT_KEY_DOWN:
+            alt_cursors_down(&selv, mod, &doc);
+            break;
+        case GLUT_KEY_UP:
+            alt_cursors_up(&selv, mod);
+            break;
+        case GLUT_KEY_RIGHT:
+            move_cursors_right(selv, mod, doc);
+            break;
+        case GLUT_KEY_LEFT:
+            move_cursors_left(selv, mod, doc);
+            break;
+        case GLUT_KEY_PAGE_DOWN:
+            selv->focus = selv->data + selv->size - 1;
+            load_lines(win.height, &doc);
+            delta = min(doc->loaded_size - selv->focus->line, win.height);
+            sel_curr = selv->data;
+            while (sel_curr != selv->data + selv->size) {
+                sel_curr->line += delta;
+                sel_curr++;
+            }
+            break;
+        case GLUT_KEY_PAGE_UP:
+            selv->focus = selv->data;
+            delta = min(selv->focus->line, win.height);
+            sel_curr = selv->data;
+            while (sel_curr != selv->data + selv->size) {
+                sel_curr->line -= delta;
+                sel_curr++;
+            }
+            break;
+        default:
+            break;
+    }
+    screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
+    fill_screen_colors(doc, &win, selv, 0);
+    gl_buffers_upload(&win);
+    glutPostRedisplay();
+}
+
+void
+alt_cursors_down(struct selectarr **selvp, int mod, struct document **docp) {
+    struct document *doc = *docp;
+    struct selectarr *selv = *selvp;
+    struct selection *sel_curr;
+
+    if ((mod & GLUT_ACTIVE_SHIFT) == 0
+        && selv->focus != selv->data + selv->size - 1) {
+        selv->focus = selv->data + selv->size - 1;
+        return;
+    }
+    if ((mod & GLUT_ACTIVE_SHIFT)
+        && selv->focus == selv->data + selv->size - 1
+    ) {
+        doc = load_lines(1, docp);
+        if (doc->loaded_size == selv->focus->line) {
+            return;
+        }
+        selv = reserve_selectarr(selvp, 1);
+        memcpy(selv->data + selv->size
+            , selv->data + selv->size - 1
+            , sizeof(struct selection)
+        );
+        selv->focus = selv->data + selv->size++;
+        selv->focus->line++;
+    } else if ((mod & GLUT_ACTIVE_SHIFT)
+        && selv->focus == selv->data
+    ) {
+        memmove(selv->data
+            , selv->data + 1
+            , sizeof(struct selection) * --selv->size
+        );
+    } else {
+        sel_curr = selv->data;
+        while (sel_curr != selv->data + selv->size) {
+            sel_curr->line++;
+            sel_curr++;
+        }
+    }
+}
+
+void
+alt_cursors_up(struct selectarr **selvp, int mod) {
+    struct selectarr *selv = *selvp;
+    struct selection *sel_curr;
+
+    if ((mod & GLUT_ACTIVE_SHIFT) == 0
+        && selv->focus != selv->data) {
+        selv->focus = selv->data;
+        return;
+    }
+
+    if ((mod & GLUT_ACTIVE_SHIFT)
+        && selv->focus == selv->data
+    ) {
+        if (selv->focus->line == 0) {
+            return;
+        }
+        selv = reserve_selectarr(selvp, 1);
+        memmove(selv->data + 1
+            , selv->data
+            , sizeof(struct selection) * selv->size++
+        );
+        selv->focus = selv->data;
+        selv->focus->line--;
+        selv->focus->glyph_beg = 0;
+        selv->focus->glyph_end = 0;
+    } else if ((mod & GLUT_ACTIVE_SHIFT)
+        && selv->focus == selv->data + selv->size - 1
+    ) {
+        if (selv->size > 1) {
+            selv->focus = selv->data + --selv->size - 1;
+        }
+    } else {
+        selv->focus = selv->data;
+        if (selv->focus->line == 0) {
+            return;
+        }
+        sel_curr = selv->data;
+        while (sel_curr != selv->data + selv->size) {
+            sel_curr->line--;
+            sel_curr++;
+        }
+    }
+}
+
+void
 move_cursors_right(struct selectarr *selv, int mod, struct document *doc) {
     struct selection *sel_curr;
     struct line* line;
@@ -144,119 +307,4 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
         }
     }
 }
-
-void
-key_special_input(int key, int mx __unused, int my __unused) {
-    int mod = glutGetModifiers();
-    struct selection *sel_curr;
-    size_t delta;
-
-    switch (key) {
-        case GLUT_KEY_DOWN:
-            load_lines(1, &doc);
-            selv->focus = selv->data + selv->size - 1;
-            if (doc->loaded_size == selv->focus->line) {
-                break;
-            }
-            if (mod & GLUT_ACTIVE_SHIFT) {
-                selv = reserve_selectarr(&selv, 1);
-                memcpy(selv->data + selv->size
-                    , selv->data + selv->size - 1
-                    , sizeof(struct selection)
-                );
-                selv->focus = selv->data + selv->size++;
-                selv->focus->line++;
-            } else {
-                sel_curr = selv->data;
-                while (sel_curr != selv->data + selv->size) {
-                    sel_curr->line++;
-                    sel_curr++;
-                }
-            }
-            break;
-        case GLUT_KEY_UP:
-            if (mod & GLUT_ACTIVE_SHIFT) {
-                if (selv->size == 1) {
-                    break;
-                }
-                if (selv->focus == selv->data + selv->size - 1) {
-                    selv->focus--;
-                }
-                selv->size--;
-            } else {
-                selv->focus = selv->data;
-                if (selv->focus->line == 0) {
-                    break;
-                }
-                sel_curr = selv->data;
-                while (sel_curr != selv->data + selv->size) {
-                    sel_curr->line--;
-                    sel_curr++;
-                }
-            }
-            break;
-        case GLUT_KEY_RIGHT:
-            move_cursors_right(selv, mod, doc);
-            break;
-        case GLUT_KEY_LEFT:
-            move_cursors_left(selv, mod, doc);
-            break;
-        case GLUT_KEY_PAGE_DOWN:
-            selv->focus = selv->data + selv->size - 1;
-            load_lines(win.height, &doc);
-            delta = min(doc->loaded_size - selv->focus->line, win.height);
-            sel_curr = selv->data;
-            while (sel_curr != selv->data + selv->size) {
-                sel_curr->line += delta;
-                sel_curr++;
-            }
-            break;
-        case GLUT_KEY_PAGE_UP:
-            selv->focus = selv->data;
-            delta = min(selv->focus->line, win.height);
-            sel_curr = selv->data;
-            while (sel_curr != selv->data + selv->size) {
-                sel_curr->line -= delta;
-                sel_curr++;
-            }
-            break;
-        default:
-            break;
-    }
-    screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
-    fill_screen_colors(doc, &win, selv, 0);
-    gl_buffers_upload(&win);
-    glutPostRedisplay();
-}
-
-
-void
-key_input(unsigned char key, int x __unused, int y __unused) {
-
-    switch (key) {
-        case 'd':
-            diff_line_insert(&diff, 0, doc->lines, doc, "asd", 3);
-            break;
-        case 's':
-            diff_line_remove(&diff, 0, doc->lines, doc, 3);
-            break;
-        case 'u':
-            diffstack_undo(diff, doc);
-            break;
-        case 'p':
-            diff_line_split(&diff, 0, 0, &doc);
-            break;
-        case 'm':
-            diff_line_merge(&diff, 0, 1, &doc);
-            break;
-        case 'q': case 27:
-            exit(0);
-        default:
-            return;
-    }
-    fill_screen(&doc, &win, 0);
-    gl_buffers_upload(&win);
-    glutPostRedisplay();
-}
-
 

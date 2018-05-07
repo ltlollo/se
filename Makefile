@@ -3,15 +3,16 @@ CFLAGS			:= -std=c11  -Wall -Wextra -Wno-pointer-sign -fPIC
 DEBUG_CFLAGS	:= ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
 RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 -DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
+SRC				:= se.c lex.c diff.c input.c
 
 all: ofont umaph
-	@$(SH) ./ext/gen_headers se.c > se.gen.h
+	@$(SH) ./ext/gen_headers $(SRC) > se.gen.h
 	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ./ext/unifont.o $(LDFLAGS) -o se
 
 bin:
 	@ctags *.c
-	@$(SH) ./ext/gen_headers se.c > se.gen.h
+	@$(SH) ./ext/gen_headers $(SRC) > se.gen.h
 	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ./ext/unifont.o $(LDFLAGS) -o se
 

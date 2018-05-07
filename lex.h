@@ -21,15 +21,4 @@ struct colored_keyword {
     .data = str, { .color_pos = color, .size = sizeof(str) - 1 },   \
 }
 
-uint8_t *number_match(uint8_t *, uint8_t *);
-int is_tok(uint32_t);
-int is_digit(uint32_t);
-int is_space(uint32_t);
-int is_alpha(uint32_t);
-int is_alnum(uint32_t);
-int is_char(uint32_t);
-int is_hex(uint32_t);
-int keyword_match(uint8_t *, uint8_t *, char *, intptr_t);
-struct colored_span color_span(uint8_t *, uint8_t *, uint8_t *);
-
 #endif // LEX_H

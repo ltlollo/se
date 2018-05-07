@@ -45,11 +45,10 @@ static struct window win;
 static struct document *doc;
 static struct diffstack *diff;
 static struct selectarr *selv;
-static struct color color_selection = { .r = 2.0f, .g = 2.0f, .b = 2.0f };
-static struct color color_focus     = { .r = 2.0f, .g = 0.0f, .b = 0.0f };
-static struct color color_cursor    = { .r = 1.8f, .g = 1.4f, .b = 1.8f };
-static struct color *color_default = colors_table;
-
+static struct color *color_selection = colors_table + 7;
+static struct color *color_cursor    = colors_table + 8;
+static struct color *color_focus     = colors_table + 9;
+static struct color *color_default   = colors_table;
 
 #include "diff.c"
 #include "input.c"
@@ -1173,14 +1172,14 @@ fill_screen_colors(struct document *doc
         for (jc = sel_beg->glyph_beg; jc < sel_beg->glyph_end; jc++) {
             qc_curr = win->font_color + ic * win->width + jc - doc->glyph_off;
             if (jc >= doc->glyph_off && jc < doc->glyph_off + win->width){
-                set_quad_color(qc_curr, &color_selection);
+                set_quad_color(qc_curr, color_selection);
             }
         }
         qc_curr = win->font_color + ic * win->width + jc - doc->glyph_off;
         if (jc >= doc->glyph_off && jc < doc->glyph_off + win->width){
             set_quad_color(qc_curr, sel_beg == selv->focus
-                ? &color_focus
-                : &color_cursor
+                ? color_focus
+                : color_cursor
             );
         }
         sel_beg++;
