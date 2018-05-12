@@ -1,64 +1,69 @@
-void
-key_input(unsigned char key, int x __unused, int y __unused) {
+// This is free and unencumbered software released into the public domain.
+// For more information, see LICENSE.
 
-    switch (key) {
-        case 'd':
-            diff_line_insert(&diff, 0, doc->lines, doc, "asd", 3);
-            break;
-        case 's':
-            diff_line_remove(&diff, 0, doc->lines, doc, 3);
-            break;
-        case 'u':
-            diffstack_undo(diff, doc);
-            break;
-        case 'p':
-            diff_line_split(&diff, 0, 0, &doc);
-            break;
-        case 'm':
-            diff_line_merge(&diff, 0, 1, &doc);
-            break;
-        case 'q': case 27:
-            exit(0);
-        default:
-            return;
-    }
-    fill_screen(&doc, &win, 0);
-    gl_buffers_upload(&win);
-}
+//void
+//key_input(unsigned char key, int x __unused, int y __unused) {
+//
+//    switch (key) {
+//        case 'd':
+//            diff_line_insert(&diff, 0, doc->lines, doc, "asd", 3);
+//            break;
+//        case 's':
+//            diff_line_remove(&diff, 0, doc->lines, doc, 3);
+//            break;
+//        case 'u':
+//            diffstack_undo(diff, doc);
+//            break;
+//        case 'p':
+//            diff_line_split(&diff, 0, 0, &doc);
+//            break;
+//        case 'm':
+//            diff_line_merge(&diff, 0, 1, &doc);
+//            break;
+//        case 'q': case 27:
+//            exit(0);
+//        default:
+//            return;
+//    }
+//    fill_screen(&doc, &win, 0);
+//    gl_buffers_upload(&win);
+//}
 
 void
-key_special_input(int key, int mod) {
+key_special_input(struct editor *ed, int key, int mod) {
     struct selection *sel_curr;
     size_t delta;
 
     switch (key) {
         case SDLK_DOWN:
-            alt_cursors_down(&selv, mod, &doc);
+            alt_cursors_down(ed, mod);
             break;
         case SDLK_UP:
-            alt_cursors_up(&selv, mod);
+            alt_cursors_up(ed, mod);
             break;
         case SDLK_RIGHT:
-            move_cursors_right(selv, mod, doc);
+            move_cursors_right(ed->selv, mod, ed->doc);
             break;
         case SDLK_LEFT:
-            move_cursors_left(selv, mod, doc);
+            move_cursors_left(ed->selv, mod, ed->doc);
             break;
         case SDLK_PAGEDOWN:
-            selv->focus = selv->data + selv->size - 1;
-            load_lines(win.height, &doc);
-            delta = min(doc->loaded_size - selv->focus->line, win.height);
-            sel_curr = selv->data;
-            while (sel_curr != selv->data + selv->size) {
+            ed->selv->focus = ed->selv->data + ed->selv->size - 1;
+            load_lines(ed, ed->win->height);
+            delta = min(ed->doc->loaded_size - ed->selv->focus->line
+                , ed->win->height
+            );
+            sel_curr = ed->selv->data;
+            while (sel_curr != ed->selv->data + ed->selv->size) {
                 sel_curr->line += delta;
                 sel_curr++;
             }
             break;
         case SDLK_PAGEUP:
-            selv->focus = selv->data;
-            delta = min(selv->focus->line, win.height);
-            sel_curr = selv->data;
-            while (sel_curr != selv->data + selv->size) {
+            ed->selv->focus = ed->selv->data;
+            delta = min(ed->selv->focus->line, ed->win->height);
+            sel_curr = ed->selv->data;
+            while (sel_curr != ed->selv->data + ed->selv->size) {
                 sel_curr->line -= delta;
                 sel_curr++;
             }
@@ -66,15 +71,12 @@ key_special_input(int key, int mod) {
         default:
             break;
     }
-    screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
-    fill_screen_colors(doc, &win, selv, 0);
-    gl_buffers_upload(&win);
 }
 
 void
-alt_cursors_down(struct selectarr **selvp, int mod, struct document **docp) {
-    struct document *doc = *docp;
-    struct selectarr *selv = *selvp;
+alt_cursors_down(struct editor *ed, int mod) {
+    struct document *doc = ed->doc;
+    struct selectarr *selv = ed->selv;
     struct selection *sel_curr;
 
     if ((mod & KMOD_LSHIFT) == 0
@@ -85,11 +87,11 @@ alt_cursors_down(struct selectarr **selvp, int mod, struct document **docp) {
     if ((mod & KMOD_LSHIFT)
         && selv->focus == selv->data + selv->size - 1
     ) {
-        doc = load_lines(1, docp);
+        doc = load_lines(ed, 1);
         if (doc->loaded_size == selv->focus->line) {
             return;
         }
-        selv = reserve_selectarr(selvp, 1);
+        selv = reserve_selectarr(&ed->selv, 1);
         memcpy(selv->data + selv->size
             , selv->data + selv->size - 1
             , sizeof(struct selection)
@@ -104,6 +106,11 @@ alt_cursors_down(struct selectarr **selvp, int mod, struct document **docp) {
             , sizeof(struct selection) * --selv->size
         );
     } else {
+        doc = load_lines(ed, 1);
+        if (selv->focus->line >= doc->loaded_size) {
+            dbg_assert(selv->focus->line >= doc->loaded_size);
+            return;
+        }
         sel_curr = selv->data;
         while (sel_curr != selv->data + selv->size) {
             sel_curr->line++;
@@ -113,8 +120,8 @@ alt_cursors_down(struct selectarr **selvp, int mod, struct document **docp) {
 }
 
 void
-alt_cursors_up(struct selectarr **selvp, int mod) {
-    struct selectarr *selv = *selvp;
+alt_cursors_up(struct editor *ed, int mod) {
+    struct selectarr *selv = ed->selv;
     struct selection *sel_curr;
 
     if ((mod & KMOD_LSHIFT) == 0
@@ -122,14 +129,13 @@ alt_cursors_up(struct selectarr **selvp, int mod) {
         selv->focus = selv->data;
         return;
     }
-
     if ((mod & KMOD_LSHIFT)
         && selv->focus == selv->data
     ) {
         if (selv->focus->line == 0) {
             return;
         }
-        selv = reserve_selectarr(selvp, 1);
+        selv = reserve_selectarr(&ed->selv, 1);
         memmove(selv->data + 1
             , selv->data
             , sizeof(struct selection) * selv->size++
@@ -285,7 +291,6 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
             sel_curr++;
         }
     } else {
-
         if (mod & KMOD_LSHIFT) {
             sel_curr = selv->data;
             while (sel_curr != selv->data + selv->size) {
@@ -306,4 +311,38 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
         }
     }
 }
+
+void
+insert_chars(struct editor *ed, int key, int mod) {
+    struct selection *sel = ed->selv->data;
+    struct selection *sel_end = ed->selv->data + ed->selv->size;
+    struct line *line;
+    uint8_t buf[4];
+    size_t bufsz;
+
+    if ((mod & KMOD_LCTRL) == 0) {
+        buf[0] = key & 0x7f;
+        bufsz = 1;
+
+        if ((sel_end - 1)->line == ed->doc->loaded_size) {
+            // add empty line
+        }
+        while (sel != sel_end) {
+            line = ed->doc->lines + sel->line;
+            if (sel->glyph_end <= line->size) {
+                diff_line_insert(&ed->diff
+                    , sel->glyph_end
+                    , line
+                    , ed->doc
+                    , buf
+                    , bufsz
+                );
+                sel->glyph_beg++;
+                sel->glyph_end++;
+            }
+            sel++;
+        }
+    }
+    fill_screen_glyphs(ed, 0);
+};
 

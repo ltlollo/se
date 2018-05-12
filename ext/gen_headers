@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+echo "// This is free and unencumbered software released into the public domain.
+// For more information, see LICENSE.
+"
 cat $@                                                                      |
 sed 's://.*::'                                                              |
 sed '/:/d;s/    ) {/) {/;s/^    ,/,/;s/^\([^# ]\)/@\1/'                     |

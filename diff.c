@@ -1,3 +1,6 @@
+// This is free and unencumbered software released into the public domain.
+// For more information, see LICENSE.
+
 struct diffstack *
 diffstack_reserve(struct diffstack **ds, size_t size) {
     struct diffstack *res = *ds;
@@ -474,7 +477,9 @@ diffstack_curr_mvback(uint8_t *curr_end) {
 }
 
 int
-diffstack_undo(struct diffstack *ds, struct document *doc) {
+diffstack_undo(struct editor *ed) {
+    struct diffstack *ds = ed->diff;
+    struct document *doc = ed->doc;
     uint8_t *diff_beg = ds->data + ds->curr_checkpoint_beg;
     uint8_t *diff_end = ds->data + ds->curr_checkpoint_end;
 
@@ -507,6 +512,7 @@ diffstack_undo(struct diffstack *ds, struct document *doc) {
     } else {
         ds->curr_checkpoint_end = 0;
     }
+    fill_screen_glyphs(ed, 0);
     return 0;
 }
 
@@ -559,7 +565,7 @@ diff_line_insert(struct diffstack **ds
             break;
         }
     }
-    memmove(el_curr + size, el_curr, line->size * sizeof(*el_curr));
+    memmove(el_curr + size, el_curr, (el_end - el_curr) * sizeof(*el_curr));
     memcpy(el_curr, data, size);
     line->size += size;
     diffstack_insert_chars_add(ds, data, size, pos, line - doc->lines);

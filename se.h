@@ -41,7 +41,6 @@ struct quad_color {
 };
 
 struct window {
-    void *data;
     unsigned width;
     unsigned height;
     unsigned scrollback_size;
@@ -49,6 +48,7 @@ struct window {
     struct quad_coord *window_mesh;
     struct quad_coord *glyph_mesh;
     struct quad_color *font_color;
+    char data[];
 };
 
 struct selection {
@@ -115,14 +115,14 @@ struct document {
     struct line lines[];
 };
 
-static struct diffstack {
+struct diffstack {
     size_t alloc;
     size_t curr_checkpoint_beg;
     size_t curr_checkpoint_end;
     size_t last_checkpoint_beg;
     size_t last_checkpoint_end;
     uint8_t data[];
-} *diff;
+};
 
 
 enum DIFF {
@@ -137,6 +137,13 @@ enum DIFF_DELIM {
     DIFF_CHAR_SEQ  = '\n',
     DIFF_AGGR_SEQ  = '\0',
     DIFF_SPLIT_SEP = '\1',
+};
+
+struct editor {
+    struct window *win;
+    struct document *doc;
+    struct diffstack *diff;
+    struct selectarr *selv;
 };
 
 #endif // SE_H

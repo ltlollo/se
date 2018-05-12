@@ -40,23 +40,43 @@
 
 extern char *__progname;
 
-static struct gl_data gl_id;
-static struct window win;
-static struct document *doc;
-static struct diffstack *diff;
-static struct selectarr *selv;
+
 static struct color *color_selection = colors_table + 7;
 static struct color *color_cursor    = colors_table + 8;
 static struct color *color_focus     = colors_table + 9;
 static struct color *color_default   = colors_table;
+static const char *vs_src = "\n\
+#version 130                 \n\
+in vec4 s_pos;               \n\
+in vec4 s_color;             \n\
+in vec2 s_uv;                \n\
+out vec4 color;              \n\
+out vec2 uv;                 \n\
+void main() {                \n\
+    color = s_color;         \n\
+    uv = s_uv;               \n\
+    gl_Position = s_pos;     \n\
+}                            \n\
+";
+static const char *fs_src  = "                  \n\
+#version 130                                    \n\
+in vec4 color;                                  \n\
+in vec2 uv;                                     \n\
+out vec4 fColor;                                \n\
+uniform sampler2D texture;                      \n\
+void main() {                                   \n\
+    vec4 bg = vec4(0.152, 0.156, 0.13, 1.0);    \n\
+    fColor = texture2D(texture, uv);            \n\
+    if (color.r <= 1.0) {                       \n\
+        fColor = fColor.r * color + bg;         \n\
+    } else {                                    \n\
+        fColor = (color - 1.0 - fColor.r);      \n\
+    }                                           \n\
+}                                               \n\
+";
 
 #include "diff.c"
 #include "input.c"
-
-void
-window_swap_buffers(void) {
-    SDL_GL_SwapWindow(gl_id.window);
-}
 
 uint32_t
 first_glyph(uint8_t *beg, uint8_t *end) {
@@ -92,28 +112,33 @@ is_same_class(uint32_t glyph_fst, uint32_t glyph_snd) {
 }
 
 void
-window_render(void) {
-    unsigned size = win.width * win.height;
+window_render(struct window *win, struct gl_data *gl_id) {
+    unsigned size = win->width * win->height;
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLES, 0, 6 * size);
-    window_swap_buffers();
+    SDL_GL_SwapWindow(gl_id->window);
 }
 
 void
-resize_display_matrix(int win_width_px, int win_height_px) {
+resize_display_matrix(struct editor *ed
+    , struct gl_data *gl_id
+    , int win_width_px
+    , int win_height_px
+    ) {
     unsigned win_width = win_width_px / H_GLYPH_PX;
     unsigned win_height = win_height_px / V_GLYPH_PX;
     unsigned size = win_width * win_height;
 
-    gen_display_matrix(&win, win_width, win_height);
+    ed->win = gen_display_matrix(&ed->win, win_width, win_height);
+    ensure(ed->win);
 
-    win.scrollback_pos = 0;
-    doc->line_off = 0;
-    doc->glyph_off = 0;
-    fill_screen_glyphs(&doc, &win, 0);
-    screen_reposition(&win, &doc, selv->focus->line, selv->focus->glyph_end);
-    fill_screen_colors(doc, &win, selv,  0);
+    ed->win->scrollback_pos = 0;
+    ed->doc->line_off = 0;
+    ed->doc->glyph_off = 0;
+    fill_screen_glyphs(ed, 0);
+    screen_reposition(ed);
+    fill_screen_colors(ed,  0);
 
     glBufferData(GL_ARRAY_BUFFER
         , (sizeof(struct quad_coord) * 2 + sizeof(struct quad_color)) * size
@@ -123,54 +148,27 @@ resize_display_matrix(int win_width_px, int win_height_px) {
     glBufferSubData(GL_ARRAY_BUFFER
         , 0
         , sizeof(struct quad_coord) * size
-        , win.window_mesh
+        , ed->win->window_mesh
     );
-    gl_buffers_upload(&win);
-    glVertexAttribPointer(gl_id.pos, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    glVertexAttribPointer(gl_id.uv, 2, GL_FLOAT, GL_FALSE, 0
+    gl_buffers_upload(ed->win);
+    glVertexAttribPointer(gl_id->pos, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glVertexAttribPointer(gl_id->uv, 2, GL_FLOAT, GL_FALSE, 0
         , (void *)(sizeof(struct quad_coord) * size)
     );
-    glVertexAttribPointer(gl_id.col, 3, GL_FLOAT, GL_FALSE, 0
+    glVertexAttribPointer(gl_id->col, 3, GL_FLOAT, GL_FALSE, 0
         , (void *)(sizeof(struct quad_coord) * 2 * size)
     );
 }
 
 void
-window_resize(int win_width_px, int win_height_px) {
+window_resize(struct editor *ed
+    , struct gl_data *gl_id
+    , int win_width_px
+    , int win_height_px
+    ) {
     glViewport(0, 0, win_width_px, win_height_px);
-    resize_display_matrix(win_width_px, win_height_px);
+    resize_display_matrix(ed, gl_id, win_width_px, win_height_px);
 }
-
-static const char *vs_src = "\n\
-#version 130                 \n\
-in vec4 s_pos;               \n\
-in vec4 s_color;             \n\
-in vec2 s_uv;                \n\
-out vec4 color;              \n\
-out vec2 uv;                 \n\
-void main() {                \n\
-    color = s_color;         \n\
-    uv = s_uv;               \n\
-    gl_Position = s_pos;     \n\
-}                            \n\
-";
-
-static const char *fs_src  = "                  \n\
-#version 130                                    \n\
-in vec4 color;                                  \n\
-in vec2 uv;                                     \n\
-out vec4 fColor;                                \n\
-uniform sampler2D texture;                      \n\
-void main() {                                   \n\
-    vec4 bg = vec4(0.152, 0.156, 0.13, 1.0);    \n\
-    fColor = texture2D(texture, uv);            \n\
-    if (color.r <= 1.0) {                       \n\
-        fColor = fColor.r * color + bg;         \n\
-    } else {                                    \n\
-        fColor = (color - 1.0 - fColor.r);      \n\
-    }                                           \n\
-}                                               \n\
-";
 
 struct selectarr *
 reserve_selectarr(struct selectarr **selv, size_t size) {
@@ -194,11 +192,11 @@ reserve_selectarr(struct selectarr **selv, size_t size) {
 }
 
 void
-screen_reposition(struct window *win
-    , struct document **docp
-    , size_t cursor_line, size_t cursor_glyph
-    ) {
-    struct document *doc = *docp;
+screen_reposition(struct editor *ed) {
+    struct document *doc = ed->doc;
+    struct window *win = ed->win;
+    size_t cursor_line = ed->selv->focus->line;
+    size_t cursor_glyph = ed->selv->focus->glyph_end;
     size_t win_lines;
 
     if (window_area(win) == 0) {
@@ -213,14 +211,14 @@ screen_reposition(struct window *win
             return;
         } else if (cursor_line < doc->line_off + win->scrollback_pos) {
             win_lines = doc->line_off + win->scrollback_pos - cursor_line;
-            move_scrollback(win, MV_VERT_UP, win_lines, docp);
+            move_scrollback(ed, MV_VERT_UP, win_lines);
         } else {
             dbg_assert(cursor_line
                 >= doc->line_off + win->scrollback_pos + win->height
             );
             win_lines = cursor_line + 1 - doc->line_off - win->scrollback_pos
                 - win->height;
-            move_scrollback(win, MV_VERT_DOWN, win_lines, docp);
+            move_scrollback(ed, MV_VERT_DOWN, win_lines);
         }
     } else {
         if (doc->glyph_off > cursor_glyph) {
@@ -239,7 +237,7 @@ screen_reposition(struct window *win
             win->scrollback_pos = 0;
             doc->line_off = cursor_line;
         }
-        fill_screen_glyphs(docp, win, 0);
+        fill_screen_glyphs(ed, 0);
     }
 }
 
@@ -317,20 +315,27 @@ str_intercalate(char *buf
 }
 
 int
-win_init(int argc, char *argv[]) {
+window_init(struct gl_data *gl_id, int argc, char **argv) {
     static char window_title[128];
+    int err;
 
     str_intercalate(window_title, sizeof(window_title) - 1, argv, argc, ' '); 
 
-    SDL_Init(SDL_INIT_VIDEO);
-    gl_id.window = SDL_CreateWindow(window_title
+    err = SDL_Init(SDL_INIT_VIDEO);
+    if (err != 0) {
+        errx(1, "SDL_Init: %s", SDL_GetError());
+    }
+    gl_id->window = SDL_CreateWindow(window_title
         , SDL_WINDOWPOS_UNDEFINED
         , SDL_WINDOWPOS_UNDEFINED
         , 0
         , 0
         , SDL_WINDOW_OPENGL | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE
     );
-    gl_id.glcontext = SDL_GL_CreateContext(gl_id.window);
+    if (gl_id->window == NULL) {
+        errx(1, "SDL_CreateWindow: %s", SDL_GetError());
+    }
+    gl_id->glcontext = SDL_GL_CreateContext(gl_id->window);
     xensure(glewInit() == GLEW_OK);
 
     glClearColor(0.152, 0.156, 0.13, 1.0);
@@ -389,8 +394,8 @@ fill_window_mesh(struct window *win, unsigned width, unsigned height) {
     }
 }
 
-void
-gen_display_matrix(struct window *win, unsigned width, unsigned height) {
+struct window*
+gen_display_matrix(struct window **win, unsigned width, unsigned height) {
     size_t scrollback = 2 * height;
     size_t window_area = width * height;
     size_t scrollback_area = width * scrollback;
@@ -398,17 +403,23 @@ gen_display_matrix(struct window *win, unsigned width, unsigned height) {
     size_t glyph_mesh_sz  = sizeof(struct quad_coord) * scrollback_area;
     size_t font_color_sz  = sizeof(struct quad_color) * scrollback_area;
     size_t win_mem_sz =  window_mesh_sz + glyph_mesh_sz + font_color_sz;
+    struct window *res = reallocflexarr((void **)win
+        , sizeof(struct window)
+        , win_mem_sz
+        , 1
+    );
+    ensure(res);
 
-    xensure(reallocarr(&win->data, win_mem_sz, 1));
-    win->width = width;
-    win->height = height;
-    win->scrollback_size = scrollback;
-    win->scrollback_pos = 0;
-    win->window_mesh = win->data;
-    win->glyph_mesh = win->window_mesh + window_area;
-    win->font_color = (void *)(win->glyph_mesh + scrollback_area);
-    fill_window_mesh(win, width, height);
-    memzero(win->glyph_mesh, 1, glyph_mesh_sz + font_color_sz);
+    res->width = width;
+    res->height = height;
+    res->scrollback_size = scrollback;
+    res->scrollback_pos = 0;
+    res->window_mesh = (struct quad_coord*)res->data;
+    res->glyph_mesh = res->window_mesh + window_area;
+    res->font_color = (void *)(res->glyph_mesh + scrollback_area);
+    fill_window_mesh(res, width, height);
+    memzero(res->glyph_mesh, 1, glyph_mesh_sz + font_color_sz);
+    return res;
 }
 
 int
@@ -432,7 +443,7 @@ unload_font(struct mmap_file *file __unused) {
 }
 
 int
-gl_pipeline_init() {
+gl_pipeline_init(struct editor *ed, struct gl_data *gl_id) {
     unsigned win_width_px = 0;
     unsigned win_height_px = 0;
     void *font_data = malloc(0x1440000);
@@ -443,26 +454,26 @@ gl_pipeline_init() {
     xensure(load_font("unifont.cfp", &file) == 0);
     rfp = load_cfp_file(&file);
     rfp_decompress(rfp, font_data);
-    gl_id.prog = gl_compile_program(vs_src, fs_src);
-    glGenVertexArrays(1, &gl_id.vao);
-    glBindVertexArray(gl_id.vao);
-    glGenBuffers(1, &gl_id.vbo);
-    glBindBuffer(GL_ARRAY_BUFFER, gl_id.vbo);
-    gl_id.pos = glGetAttribLocation(gl_id.prog, "s_pos");
-    gl_id.uv = glGetAttribLocation(gl_id.prog, "s_uv");
-    gl_id.col = glGetAttribLocation(gl_id.prog, "s_color");
+    gl_id->prog = gl_compile_program(vs_src, fs_src);
+    glGenVertexArrays(1, &gl_id->vao);
+    glBindVertexArray(gl_id->vao);
+    glGenBuffers(1, &gl_id->vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, gl_id->vbo);
+    gl_id->pos = glGetAttribLocation(gl_id->prog, "s_pos");
+    gl_id->uv = glGetAttribLocation(gl_id->prog, "s_uv");
+    gl_id->col = glGetAttribLocation(gl_id->prog, "s_color");
     xensure(glGetError() == GL_NO_ERROR);
 
-    memzero(&win, 1, sizeof(win));
-    resize_display_matrix(win_width_px, win_height_px);
+    memzero(ed->win, 1, sizeof(struct window));
+    resize_display_matrix(ed, gl_id, win_width_px, win_height_px);
 
-    glEnableVertexAttribArray(gl_id.pos);
-    glEnableVertexAttribArray(gl_id.col);
-    glEnableVertexAttribArray(gl_id.uv);
+    glEnableVertexAttribArray(gl_id->pos);
+    glEnableVertexAttribArray(gl_id->col);
+    glEnableVertexAttribArray(gl_id->uv);
 
     glEnable(GL_TEXTURE_2D);
-    glGenTextures(1, &gl_id.tbo);
-    glBindTexture(GL_TEXTURE_2D, gl_id.tbo);
+    glGenTextures(1, &gl_id->tbo);
+    glBindTexture(GL_TEXTURE_2D, gl_id->tbo);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, 0x1200, 0x1200, 0, GL_RED
         , GL_UNSIGNED_BYTE
         , font_data
@@ -476,10 +487,10 @@ gl_pipeline_init() {
     glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 
     glActiveTexture(GL_TEXTURE0);
-    gl_id.tex = glGetUniformLocation(gl_id.prog, "texture");
-    glUniform1i(gl_id.tex, 0);
+    gl_id->tex = glGetUniformLocation(gl_id->prog, "texture");
+    glUniform1i(gl_id->tex, 0);
 
-    glUseProgram(gl_id.prog);
+    glUseProgram(gl_id->prog);
     return 0;
 }
 
@@ -587,7 +598,11 @@ init_extern_line(struct line *line
 }
 
 uint8_t *
-load_line(struct line *line, uint8_t *beg, uint8_t *end) {
+load_line(struct line *line
+    , uint8_t *beg
+    , uint8_t *end
+    , struct document *doc
+    ) {
     uint8_t *curr = beg;
     size_t line_size;
 
@@ -689,8 +704,8 @@ is_line_utf8(struct line *line, struct document *doc) {
 }
 
 struct document *
-load_lines(size_t nlines, struct document **doc) {
-    struct document *res = *doc;
+load_lines(struct editor *ed, size_t nlines) {
+    struct document *res = ed->doc;
     struct line *trampoline = res->lines + res->loaded_size;
     uint8_t *doc_beg = res->file.data;
     uint8_t *doc_end = doc_beg + res->file.size;
@@ -709,15 +724,15 @@ load_lines(size_t nlines, struct document **doc) {
     if (trampoline->ptr == doc_end) {
         return res;
     }
-    ensure(resize_document_by(nlines, doc) != NULL);
-    res = *doc;
+    ensure(resize_document_by(nlines, &ed->doc) != NULL);
+    res = ed->doc;
     trampoline = res->lines + res->loaded_size;
     doc_end = res->file.data + res->file.size;
 
     to_load = trampoline->intern_line;
     end = trampoline + nlines;
     while (trampoline != end && to_load != doc_end) {
-        to_load = load_line(trampoline, to_load, doc_end);
+        to_load = load_line(trampoline, to_load, doc_end, ed->doc);
         trampoline++;
     }
     dbg_assert(trampoline == res->lines + res->loaded_size + nlines
@@ -728,7 +743,7 @@ load_lines(size_t nlines, struct document **doc) {
 
     if (trampoline->ptr == doc_end) {
         res->alloc = res->loaded_size + 1;
-        ensure(reallocflexarr((void **)doc
+        ensure(reallocflexarr((void **)&ed->doc
                 , sizeof(struct document)
                 , res->alloc
                 , sizeof(struct line)
@@ -1083,23 +1098,18 @@ offsetof_width(struct line *line, struct document *doc, size_t width) {
 }
 
 void
-fill_screen(struct document **doc
-    , struct window *win
-    , unsigned i
-    ) {
-    fill_screen_glyphs(doc, win, i);
-    fill_screen_colors(*doc, win, selv, i);
+fill_screen(struct editor *ed, unsigned i) {
+    fill_screen_glyphs(ed, i);
+    fill_screen_colors(ed, i);
 }
 
 void
-fill_screen_glyphs(struct document **doc
-    , struct window *win
-    , unsigned i
-    ) {
-    struct document *res = *doc;
-    struct line *line_beg = res->lines + res->line_off;
-    struct line *line_end = res->lines + res->loaded_size;
-    size_t win_lines = res->loaded_size - res->line_off;
+fill_screen_glyphs(struct editor *ed, unsigned i) {
+    struct document *doc = ed->doc;
+    struct window *win = ed->win;
+    struct line *line_beg = doc->lines + doc->line_off;
+    struct line *line_end = doc->lines + doc->loaded_size;
+    size_t win_lines = doc->loaded_size - doc->line_off;
     unsigned j;
 
     ensure(line_beg <= line_end);
@@ -1107,19 +1117,18 @@ fill_screen_glyphs(struct document **doc
     if (win->scrollback_size * win->width == 0) {
         return;
     }
-    if (win_lines < win->scrollback_size && !is_fully_loaded(res)) {
-        res = load_lines(win->scrollback_size - win_lines, doc);
-        ensure(res);
-        line_beg = res->lines + res->line_off;
-        line_end = res->lines + res->loaded_size;
-        win_lines = res->loaded_size - res->line_off;
+    if (win_lines < win->scrollback_size && !is_fully_loaded(doc)) {
+        doc = load_lines(ed, win->scrollback_size - win_lines);
+        line_beg = doc->lines + doc->line_off;
+        line_end = doc->lines + doc->loaded_size;
+        win_lines = doc->loaded_size - doc->line_off;
     }
     for (; i < min(win_lines, win->scrollback_size); i++) {
         fill_line_glyphs(i
-            , is_line_utf8(line_beg + i, res)
-            , begin_line(line_beg + i, res)
-            , end_line(line_beg + i, res)
-            , res->glyph_off
+            , is_line_utf8(line_beg + i, doc)
+            , begin_line(line_beg + i, doc)
+            , end_line(line_beg + i, doc)
+            , doc->glyph_off
             , win
         );
     }
@@ -1132,16 +1141,14 @@ fill_screen_glyphs(struct document **doc
 }
 
 void
-fill_screen_colors(struct document *doc
-    , struct window *win
-    , struct selectarr *selv
-    , unsigned line
-    ) {
+fill_screen_colors(struct editor *ed, unsigned line) {
+    struct document *doc = ed->doc;
+    struct window *win = ed->win;
     struct line *line_beg = doc->lines + doc->line_off;
     struct line *line_end = doc->lines + doc->loaded_size;
     size_t win_lines = doc->loaded_size - doc->line_off;
-    struct selection *sel_beg = selv->data;
-    struct selection *sel_end = selv->data + selv->size;
+    struct selection *sel_beg = ed->selv->data;
+    struct selection *sel_end = ed->selv->data + ed->selv->size;
     struct quad_color *qc_curr;
     unsigned ic;
     unsigned jc;
@@ -1185,7 +1192,7 @@ fill_screen_colors(struct document *doc
         }
         qc_curr = win->font_color + ic * win->width + jc - doc->glyph_off;
         if (jc >= doc->glyph_off && jc < doc->glyph_off + win->width){
-            set_quad_color(qc_curr, sel_beg == selv->focus
+            set_quad_color(qc_curr, sel_beg == ed->selv->focus
                 ? color_focus
                 : color_cursor
             );
@@ -1213,8 +1220,9 @@ window_area(struct window *win) {
 }
 
 void
-move_scrollback_up(struct window *win, struct document **docp) {
-    struct document *doc = *docp;
+move_scrollback_up(struct editor *ed) {
+    struct document *doc = ed->doc;
+    struct window *win = ed->win;
     size_t size = window_area(win);
 
     if (win->scrollback_pos > 0) {
@@ -1233,12 +1241,13 @@ move_scrollback_up(struct window *win, struct document **docp) {
         , win->glyph_mesh
         , size * sizeof(struct quad_coord)
     );
-    fill_screen_glyphs(docp, win, 0);
+    fill_screen_glyphs(ed, 0);
 }
 
 void
-move_scrollback_down(struct window *win, struct document **docp) {
-    struct document *doc = *docp;
+move_scrollback_down(struct editor *ed) {
+    struct document *doc = ed->doc;
+    struct window *win = ed->win;
     struct line *line = doc->lines + doc->line_off;
     struct line *line_end = doc->lines + doc->loaded_size;
     size_t size = window_area(win);
@@ -1248,8 +1257,7 @@ move_scrollback_down(struct window *win, struct document **docp) {
         return;
     }
     if (!is_fully_loaded(doc) && line_end - line > win->height) {
-        doc = load_lines(line_end - line, docp);
-        ensure(doc);
+        doc = load_lines(ed, line_end - line);
         line = doc->lines + doc->line_off;
         line_end = doc->lines + doc->loaded_size;
     }
@@ -1263,7 +1271,7 @@ move_scrollback_down(struct window *win, struct document **docp) {
         , win->glyph_mesh + size
         , size * sizeof(struct quad_coord)
     );
-    fill_screen_glyphs(docp, win, win->height);
+    fill_screen_glyphs(ed, win->height);
 }
 
 void
@@ -1283,20 +1291,16 @@ gl_buffers_upload(struct window *win) {
 }
 
 void
-move_scrollback(struct window *win
-    , enum MV_VERT_DIRECTION vdir
-    , size_t times
-    , struct document **docp
-    ) {
+move_scrollback(struct editor *ed, enum MV_VERT_DIRECTION vdir, size_t times) {
     size_t i;
 
     if (vdir == MV_VERT_UP) {
         for (i = 0; i < times; i++) {
-            move_scrollback_up(win, docp);
+            move_scrollback_up(ed);
         }
     } else if (vdir == MV_VERT_DOWN) {
         for (i = 0; i < times; i++) {
-            move_scrollback_down(win, docp);
+            move_scrollback_down(ed);
         }
     } else {
         dbg_assert(0);
@@ -1384,51 +1388,79 @@ insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
 }
 
 void
-render_loop(void) {
-    while (1) {
-        SDL_Event event;
-        while (SDL_PollEvent(&event)) {
-            switch(event.type) {
-                case SDL_KEYDOWN:
-                    switch (event.key.keysym.sym) {
-                        case SDLK_q:
-                            exit(0);
-                        case SDLK_UP:
-                        case SDLK_DOWN:
-                        case SDLK_RIGHT:
-                        case SDLK_LEFT:
-                        case SDLK_PAGEUP:
-                        case SDLK_PAGEDOWN:
-                            key_special_input(event.key.keysym.sym
-                                , event.key.keysym.mod
-                            );
-                            break;
+render_loop(struct editor *ed, struct gl_data *gl_id) {
+    int key;
+    int mod;
+    SDL_Event event;
+
+    window_render(ed->win, gl_id);
+
+    while (SDL_WaitEvent(&event)) {
+        key = event.key.keysym.sym;
+        mod = event.key.keysym.mod;
+        switch(event.type) {
+            case SDL_KEYDOWN:
+                if (mod & KMOD_LCTRL) {
+                    if (key == 'u') {
+                        diffstack_undo(ed);
+                        break;
+                    } else if (key == 'q') {
+                        exit(0);
                     }
-                    break;
-                case SDL_WINDOWEVENT:
-                    if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-                        window_resize(event.window.data1, event.window.data2);
-                    }
-                    break;
-            }
+                }
+                switch (key) {
+                    case SDLK_LCTRL:    case SDLK_RCTRL:    case SDLK_LSHIFT:
+                    case SDLK_RSHIFT:   case SDLK_LALT:     case SDLK_RALT:
+                        break;
+                    case SDLK_UP:       case SDLK_DOWN:     case SDLK_RIGHT:
+                    case SDLK_LEFT:     case SDLK_PAGEUP:   case SDLK_PAGEDOWN:
+                        key_special_input(ed, key, mod);
+                        break;
+                    default:
+                        insert_chars(ed, key, mod);
+                        break;
+                }
+                break;
+            case SDL_WINDOWEVENT:
+                if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
+                    window_resize(ed
+                        , gl_id
+                        , event.window.data1
+                        , event.window.data2
+                    );
+                }
+                break;
         }
-        window_render();
+        screen_reposition(ed);
+        fill_screen_colors(ed, 0);
+        gl_buffers_upload(ed->win);
+        window_render(ed->win, gl_id);
     }
+}
+
+int
+init_editor(struct editor *ed, const char *fname) {
+
+    xensure(init_diffstack(&ed->diff, 0x1000) == 0);
+    xensure(init_doc(fname, &ed->doc) == 0);
+    xensure(init_sel(0x10, &ed->selv) == 0);
+    ed->win = malloc(sizeof(struct window));
+    ensure(ed->win);
+    return 0;
 }
 
 int
 main(int argc, char *argv[]) {
     char *fname = "se.c";
+    static struct gl_data gl_id;
+    static struct editor ed;
 
     if (argc - 1 > 0) {
         fname = argv[1];
     }
-    xensure(init_diffstack(&diff, 0x1000) == 0);
-    xensure(init_doc(fname, &doc) == 0);
-    xensure(init_sel(16, &selv) == 0);
-    xensure(win_init(argc, argv) == 0);
-    xensure(gl_pipeline_init() == 0);
-
-    render_loop();
+    xensure(init_editor(&ed, fname) == 0);
+    xensure(window_init(&gl_id, argc, argv) == 0);
+    xensure(gl_pipeline_init(&ed, &gl_id) == 0);
+    render_loop(&ed, &gl_id);
     return 0;
 }
