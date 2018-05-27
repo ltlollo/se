@@ -403,6 +403,9 @@ diffstack_undo_chars_del(uint8_t *diff_beg
     restore_seq_end = line->extern_line->data + x;
     restore_seq_beg = restore_seq_end - seq_size;
 
+    dbg_assert(restore_seq_beg >= begin_line(line, doc));
+    dbg_assert(restore_seq_end <= end_line(line, doc));
+
     memmove(restore_seq_end, restore_seq_beg, line->size);
     rmemcpy(restore_seq_beg, seq_beg, seq_size);
 
@@ -422,6 +425,7 @@ diffstack_undo_chars_add(uint8_t *diff_beg
     struct line *line;
     uint8_t *restore_seq_beg;
     uint8_t *restore_seq_end;
+    uint8_t *line_end;
 
     dbg_assert(diff_end > diff_beg + EMPTY_DIFF);
     dbg_assert(*diff_beg == DIFF_CHARS_ADD);
@@ -440,8 +444,12 @@ diffstack_undo_chars_add(uint8_t *diff_beg
 
     restore_seq_beg = line->extern_line->data + x;
     restore_seq_end = restore_seq_beg + seq_size;
+    line_end = line->extern_line->data + line->size;
 
-    memmove(restore_seq_beg, restore_seq_end, line->size);
+    dbg_assert(restore_seq_beg <= line_end);
+    dbg_assert(restore_seq_end <= line_end);
+
+    memmove(restore_seq_beg, restore_seq_end, line_end - restore_seq_end);
 
     dbg_assert(line->size >= seq_size);
     line->size -= seq_size;
@@ -500,6 +508,8 @@ diffstack_undo(struct editor *ed) {
             diffstack_undo_line_merge(diff_beg, diff_end, doc);
             break;
         case DIFF_AGGREGATE:
+            diffstack_undo_aggregate(diff_beg, diff_end, doc);
+            break;
         default:
             ensure(0);
     }
@@ -514,6 +524,47 @@ diffstack_undo(struct editor *ed) {
     }
     fill_screen_glyphs(ed, 0);
     return 0;
+}
+
+void
+diffstack_undo_aggregate(uint8_t *diff_aggr_beg
+    , uint8_t *diff_aggr_end
+    , struct document *doc
+    ) {
+    uint8_t *diff_beg = diff_aggr_beg + SIZE_AGGR;
+    uint8_t *diff_end = diff_aggr_end - SIZE_AGGR;
+    uint8_t *diff_curr;
+    size_t aggr_size;
+    size_t i;
+
+    dbg_assert(diff_aggr_beg[0] == DIFF_AGGREGATE);
+    memcpy(&aggr_size, diff_aggr_beg + 1, sizeof(aggr_size));
+
+    for (i = 0; i < aggr_size; i++) {
+        diff_curr = diffstack_curr_mvback(diff_end);
+        ensure(diff_curr >= diff_beg);
+        switch (*diff_curr) {
+            case DIFF_CHARS_ADD:
+                diffstack_undo_chars_add(diff_curr, diff_end, doc);
+                break;
+            case DIFF_CHARS_DEL:
+                diffstack_undo_chars_del(diff_curr, diff_end, doc);
+                break;
+            case DIFF_LINE_SPLIT:
+                diffstack_undo_line_split(diff_curr, diff_end, doc);
+                break;
+            case DIFF_LINE_MERGE:
+                diffstack_undo_line_merge(diff_curr, diff_end, doc);
+                break;
+            case DIFF_AGGREGATE:
+                diffstack_undo_aggregate(diff_curr, diff_end, doc);
+                break;
+            default:
+                ensure(0);
+        }
+        diff_end = diff_curr;
+    }
+    dbg_assert(diff_curr == diff_beg);
 }
 
 int
@@ -579,23 +630,21 @@ diff_line_remove(struct diffstack **ds
     , size_t size
     ) {
     struct extern_line *el = convert_line_external(line, doc);
-    uint8_t *el_curr = el->data + pos;
-    uint8_t *el_end = el->data + line->size;
-    uint8_t *data_curr = el_curr;
-    uint8_t *data_end = el_curr + size;
-    size_t rhs_size = el_end - el_curr;
-
+    uint8_t *src_beg = el->data + pos + size;
+    uint8_t *src_end = el->data + line->size;
+    uint8_t *dst_beg = el->data + pos;
+    
     ensure(line->size >= size);
     ensure(pos <= line->size && pos + size <= line->size);
 
-    if (next_utf8_or_null(data_curr, el_end) == NULL) {
+    if (next_utf8_or_null(dst_beg, src_end) == NULL) {
         el->utf8_status = UTF8_DIRTY;
     }
-    if (next_utf8_or_null(data_end, el_end) == NULL) {
+    if (next_utf8_or_null(src_beg, src_end) == NULL) {
         el->utf8_status = UTF8_DIRTY;
     }
-    diffstack_insert_chars_del(ds, el_curr, size, pos, line - doc->lines);
-    memmove(data_curr, data_end, rhs_size);
+    diffstack_insert_chars_del(ds, dst_beg, size, pos, line - doc->lines);
+    memmove(dst_beg, src_beg, src_end - src_beg);
     line->size -= size;
 }
 

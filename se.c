@@ -33,13 +33,8 @@
 #define D_GLYPH     (1.0f / 256)
 #define H_GLYPH_PX  (12)
 #define V_GLYPH_PX  (16)
-#define TAB_SIZE    (8)
-#define EMPTY_DIFF  (3 + sizeof(size_t) * 2)
-#define SIZE_SPLIT  (2 + sizeof(size_t) * 3)
-#define SIZE_AGGR   (1 + sizeof(size_t) * 1)
 
 extern char *__progname;
-
 
 static struct color *color_selection = colors_table + 7;
 static struct color *color_cursor    = colors_table + 8;
@@ -113,7 +108,7 @@ is_same_class(uint32_t glyph_fst, uint32_t glyph_snd) {
 
 void
 window_render(struct window *win, struct gl_data *gl_id) {
-    unsigned size = win->width * win->height;
+    unsigned size = window_area(win);
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLES, 0, 6 * size);
@@ -1066,7 +1061,7 @@ prev_utf8_char(uint8_t *curr) {
 }
 
 size_t
-glyphs_in_utf8_line(uint8_t *curr, uint8_t *end) {
+glyphs_in_utf8_span(uint8_t *curr, uint8_t *end) {
     size_t curr_width;
 
     for (curr_width = 0; curr < end; curr_width++) {
@@ -1075,26 +1070,42 @@ glyphs_in_utf8_line(uint8_t *curr, uint8_t *end) {
     return curr_width;
 }
 
+size_t
+glyphs_in_line(struct line *line, struct document *doc) {
+    uint8_t *beg = begin_line(line, doc);
+    uint8_t *end = end_line(line, doc);
+
+    if (is_line_utf8(line, doc)) {
+        return glyphs_in_utf8_span(beg, end);
+    } else {
+        return end - beg;
+    }
+}
+
 uint8_t *
-offsetof_utf8_width(uint8_t *curr, uint8_t *end, size_t width) {
+sync_utf8_width_or_null(uint8_t *curr, uint8_t *end, size_t width) {
     unsigned i;
 
     for (i = 0; curr < end && i < width; i++) {
         curr = next_utf8_char(curr);
     }
+    if (i != width) {
+        return NULL;
+    }
     return curr;
 }
 
 uint8_t *
-offsetof_width(struct line *line, struct document *doc, size_t width) {
+sync_width_or_null(struct line *line, size_t width, struct document *doc) {
 
     if (is_line_utf8(line, doc)) {
-        return offsetof_utf8_width(begin_line(line, doc)
+        return sync_utf8_width_or_null(begin_line(line, doc)
             , end_line(line, doc)
             , width
         );
+    } else {
+        return width <= line->size ? line->extern_line->data + width : NULL;
     }
-    return line->extern_line->data + width;
 }
 
 void
@@ -1414,10 +1425,15 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
                         break;
                     case SDLK_UP:       case SDLK_DOWN:     case SDLK_RIGHT:
                     case SDLK_LEFT:     case SDLK_PAGEUP:   case SDLK_PAGEDOWN:
-                        key_special_input(ed, key, mod);
+                        key_move_input(ed, key, mod);
+                        break;
+                    case SDLK_DELETE:   case SDLK_RETURN:   case SDLK_ESCAPE:
+                        break;
+                    case SDLK_BACKSPACE:
+                        key_backspace(ed);
                         break;
                     default:
-                        insert_chars(ed, key, mod);
+                        key_insert_chars(ed, key, mod);
                         break;
                 }
                 break;

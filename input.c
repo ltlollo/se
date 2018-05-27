@@ -1,36 +1,8 @@
 // This is free and unencumbered software released into the public domain.
 // For more information, see LICENSE.
 
-//void
-//key_input(unsigned char key, int x __unused, int y __unused) {
-//
-//    switch (key) {
-//        case 'd':
-//            diff_line_insert(&diff, 0, doc->lines, doc, "asd", 3);
-//            break;
-//        case 's':
-//            diff_line_remove(&diff, 0, doc->lines, doc, 3);
-//            break;
-//        case 'u':
-//            diffstack_undo(diff, doc);
-//            break;
-//        case 'p':
-//            diff_line_split(&diff, 0, 0, &doc);
-//            break;
-//        case 'm':
-//            diff_line_merge(&diff, 0, 1, &doc);
-//            break;
-//        case 'q': case 27:
-//            exit(0);
-//        default:
-//            return;
-//    }
-//    fill_screen(&doc, &win, 0);
-//    gl_buffers_upload(&win);
-//}
-
 void
-key_special_input(struct editor *ed, int key, int mod) {
+key_move_input(struct editor *ed, int key, int mod) {
     struct selection *sel_curr;
     size_t delta;
 
@@ -313,36 +285,156 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
 }
 
 void
-insert_chars(struct editor *ed, int key, int mod) {
+key_insert_chars(struct editor *ed, int key, int mod) {
     struct selection *sel = ed->selv->data;
     struct selection *sel_end = ed->selv->data + ed->selv->size;
+    struct document *doc = ed->doc;
+    struct diffstack *diff = ed->diff;
+    size_t diff_curr_beg = diff->curr_checkpoint_beg;
+    size_t diff_curr_end = diff->curr_checkpoint_end;
+    size_t aggr_count = 0;
+    int add_new_line = 0;
+    size_t aggr_beg_pos;
+    uint8_t *line_beg;
+    uint8_t *line_curr;
+    size_t pos;
     struct line *line;
     uint8_t buf[4];
     size_t bufsz;
 
-    if ((mod & KMOD_LCTRL) == 0) {
-        buf[0] = key & 0x7f;
-        bufsz = 1;
-
-        if ((sel_end - 1)->line == ed->doc->loaded_size) {
-            // add empty line
-        }
-        while (sel != sel_end) {
-            line = ed->doc->lines + sel->line;
-            if (sel->glyph_end <= line->size) {
-                diff_line_insert(&ed->diff
-                    , sel->glyph_end
-                    , line
-                    , ed->doc
-                    , buf
-                    , bufsz
-                );
-                sel->glyph_beg++;
-                sel->glyph_end++;
-            }
-            sel++;
-        }
+    if (mod & KMOD_LCTRL) {
+        return;
     }
+    buf[0] = key & 0x7f;
+    bufsz = 1;
+
+    if ((sel_end - 1)->line == ed->doc->loaded_size) {
+        add_new_line = 1;
+    }
+    if (ed->selv->size > 1 || add_new_line) {
+        diff = diffstack_reserve(&ed->diff, SIZE_AGGR);
+        diff->curr_checkpoint_beg = diff->curr_checkpoint_end;
+        diff->curr_checkpoint_end = diff->curr_checkpoint_beg + SIZE_AGGR;
+        aggr_beg_pos =  diff->curr_checkpoint_beg;
+    }
+    if (add_new_line) {
+        ensure(ed->doc->loaded_size); // How to handle empty file?
+        line = ed->doc->lines + ed->doc->loaded_size - 1;
+        diff_line_split(&ed->diff
+            , line->size
+            , ed->doc->loaded_size - 1
+            , &ed->doc
+        );
+        aggr_count++;
+    }
+    while (sel != sel_end) {
+        line = ed->doc->lines + sel->line;
+        line_beg = begin_line(line, doc);
+        line_curr = sync_width_or_null(line, sel->glyph_end, doc);
+        if (line_curr) {
+            pos = line_curr - line_beg;
+            diff_line_insert(&ed->diff
+                , pos
+                , line
+                , ed->doc
+                , buf
+                , bufsz
+            );
+            sel->glyph_beg++;
+            sel->glyph_end++;
+            aggr_count++;
+        }
+        sel++;
+    }
+    if (aggr_count == 0) {
+        diff->curr_checkpoint_beg = diff_curr_beg;
+        diff->curr_checkpoint_end = diff_curr_end;
+        return;
+    }
+    if (ed->selv->size > 1) {
+        diff = diffstack_reserve(&ed->diff, SIZE_AGGR);
+        diff->curr_checkpoint_beg = aggr_beg_pos;
+        diff->curr_checkpoint_end = diff->curr_checkpoint_end + SIZE_AGGR;
+        diff->last_checkpoint_beg = diff->curr_checkpoint_beg;
+        diff->last_checkpoint_end = diff->curr_checkpoint_end;
+        diff->data[aggr_beg_pos] = DIFF_AGGREGATE;
+        memcpy(diff->data + aggr_beg_pos + 1, &aggr_count, sizeof(aggr_count));
+        memcpy(diff->data + diff->curr_checkpoint_end - sizeof(aggr_count) - 1
+            , &aggr_count
+            , sizeof(aggr_count)
+        );
+        diff->data[diff->curr_checkpoint_end - 1] = DIFF_AGGR_SEQ;
+    }
+
     fill_screen_glyphs(ed, 0);
 };
+
+void
+key_backspace(struct editor *ed) {
+    struct selection *sel = ed->selv->data;
+    struct selection *sel_end = ed->selv->data + ed->selv->size;
+    struct document *doc = ed->doc;
+    struct diffstack *diff = ed->diff;
+    size_t diff_curr_beg = diff->curr_checkpoint_beg;
+    size_t diff_curr_end = diff->curr_checkpoint_end;
+    size_t aggr_count = 0;
+    struct line *line;
+    uint8_t *line_beg;
+    uint8_t *line_end;
+    uint8_t *line_curr;
+    size_t pos;
+    size_t delta;
+    size_t aggr_beg_pos;
+
+    if (ed->selv->size > 1) {
+        diff = diffstack_reserve(&ed->diff, SIZE_AGGR);
+        diff->curr_checkpoint_beg = diff->curr_checkpoint_end;
+        diff->curr_checkpoint_end = diff->curr_checkpoint_beg + SIZE_AGGR;
+        aggr_beg_pos =  diff->curr_checkpoint_beg;
+    }
+    while (sel != sel_end) {
+        line = ed->doc->lines + sel->line;
+        if (sel->glyph_end) {
+            line_beg = begin_line(line, doc);
+            line_end = end_line(line, doc);
+            line_curr = sync_width_or_null(line, sel->glyph_end - 1, doc);
+            if (line_curr && line_curr < line_end) {
+                pos = line_curr - line_beg;
+                if (is_line_utf8(line, doc)) {
+                    delta = next_utf8_char(line_curr) - line_curr;
+                } else {
+                    delta = 1;
+                }
+                diff_line_remove(&ed->diff, pos, line, doc, delta);
+                aggr_count++;
+            }
+            sel->glyph_beg--;
+            sel->glyph_end--;
+        }
+        sel++;
+    }
+    if (aggr_count == 0) {
+        diff->curr_checkpoint_beg = diff_curr_beg;
+        diff->curr_checkpoint_end = diff_curr_end;
+        return;
+    }
+    if (ed->selv->size > 1) {
+        diff = diffstack_reserve(&ed->diff, SIZE_AGGR);
+        diff->curr_checkpoint_beg = aggr_beg_pos;
+        diff->curr_checkpoint_end = diff->curr_checkpoint_end + SIZE_AGGR;
+        diff->last_checkpoint_beg = diff->curr_checkpoint_beg;
+        diff->last_checkpoint_end = diff->curr_checkpoint_end;
+        diff->data[aggr_beg_pos] = DIFF_AGGREGATE;
+        memcpy(diff->data + aggr_beg_pos + 1, &aggr_count, sizeof(aggr_count));
+        memcpy(diff->data + diff->curr_checkpoint_end - sizeof(aggr_count) - 1
+            , &aggr_count
+            , sizeof(aggr_count)
+        );
+        diff->data[diff->curr_checkpoint_end - 1] = DIFF_AGGR_SEQ;
+    }
+
+    fill_screen_glyphs(ed, 0);
+}
+
+
 

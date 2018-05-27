@@ -6,6 +6,10 @@
 
 #include <SDL2/SDL.h>
 
+#define EMPTY_DIFF  (3 + sizeof(size_t) * 2)
+#define SIZE_SPLIT  (2 + sizeof(size_t) * 3)
+#define SIZE_AGGR   (1 + sizeof(size_t) * 1)
+
 typedef int(*class_fn)(uint32_t);
 
 struct gl_data {
