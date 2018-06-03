@@ -6,9 +6,10 @@
 
 #include <SDL2/SDL.h>
 
-#define EMPTY_DIFF  (3 + sizeof(size_t) * 2)
-#define SIZE_SPLIT  (2 + sizeof(size_t) * 3)
-#define SIZE_AGGR   (1 + sizeof(size_t) * 1)
+#define EMPTY_DIFF   (3 + sizeof(size_t) * 2)
+#define SIZE_SPLIT   (2 + sizeof(size_t) * 3)
+#define SIZE_AGGR    (1 + sizeof(size_t) * 1)
+#define DIFF_ADD_EOD (~0ull)
 
 typedef int(*class_fn)(uint32_t);
 
@@ -128,6 +129,12 @@ struct diffstack {
     uint8_t data[];
 };
 
+struct diffaggr_info {
+    size_t old_checkpoint_beg;
+    size_t old_checkpoint_end;
+    size_t aggregate_beg;
+    size_t size;
+};
 
 enum DIFF {
     DIFF_CHARS_ADD  = 'a',

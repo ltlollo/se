@@ -288,13 +288,11 @@ void
 key_insert_chars(struct editor *ed, int key, int mod) {
     struct selection *sel = ed->selv->data;
     struct selection *sel_end = ed->selv->data + ed->selv->size;
+    struct selection *sel_fin = sel_end - 1;
     struct document *doc = ed->doc;
-    struct diffstack *diff = ed->diff;
-    size_t diff_curr_beg = diff->curr_checkpoint_beg;
-    size_t diff_curr_end = diff->curr_checkpoint_end;
-    size_t aggr_count = 0;
+    struct diffstack *diff __unused = ed->diff;
+    struct diffaggr_info aggr_info;
     int add_new_line = 0;
-    size_t aggr_beg_pos;
     uint8_t *line_beg;
     uint8_t *line_curr;
     size_t pos;
@@ -308,24 +306,27 @@ key_insert_chars(struct editor *ed, int key, int mod) {
     buf[0] = key & 0x7f;
     bufsz = 1;
 
-    if ((sel_end - 1)->line == ed->doc->loaded_size) {
+    //if (ed->selv->size == 1) {
+    //    if (sel->line != ed->doc->loaded_size
+    //        && sel->glyph_beg == sel->glyph_end
+    //    ) {
+    //    
+    //    }
+    //} else {
+    //
+    //}
+
+    if (sel_fin->line == ed->doc->loaded_size) {
         add_new_line = 1;
     }
     if (ed->selv->size > 1 || add_new_line) {
-        diff = diffstack_reserve(&ed->diff, SIZE_AGGR);
-        diff->curr_checkpoint_beg = diff->curr_checkpoint_end;
-        diff->curr_checkpoint_end = diff->curr_checkpoint_beg + SIZE_AGGR;
-        aggr_beg_pos =  diff->curr_checkpoint_beg;
+        diff = diffstack_aggregate_begin(&ed->diff, &aggr_info);
     }
     if (add_new_line) {
-        ensure(ed->doc->loaded_size); // How to handle empty file?
-        line = ed->doc->lines + ed->doc->loaded_size - 1;
-        diff_line_split(&ed->diff
-            , line->size
-            , ed->doc->loaded_size - 1
-            , &ed->doc
-        );
-        aggr_count++;
+        diff_line_split(&ed->diff, 0, DIFF_ADD_EOD, &ed->doc);
+        diff = ed->diff;
+        doc  = ed->doc;
+        aggr_info.size++;
     }
     while (sel != sel_end) {
         line = ed->doc->lines + sel->line;
@@ -342,98 +343,124 @@ key_insert_chars(struct editor *ed, int key, int mod) {
             );
             sel->glyph_beg++;
             sel->glyph_end++;
-            aggr_count++;
+            aggr_info.size++;
         }
         sel++;
     }
-    if (aggr_count == 0) {
-        diff->curr_checkpoint_beg = diff_curr_beg;
-        diff->curr_checkpoint_end = diff_curr_end;
-        return;
-    }
     if (ed->selv->size > 1) {
-        diff = diffstack_reserve(&ed->diff, SIZE_AGGR);
-        diff->curr_checkpoint_beg = aggr_beg_pos;
-        diff->curr_checkpoint_end = diff->curr_checkpoint_end + SIZE_AGGR;
-        diff->last_checkpoint_beg = diff->curr_checkpoint_beg;
-        diff->last_checkpoint_end = diff->curr_checkpoint_end;
-        diff->data[aggr_beg_pos] = DIFF_AGGREGATE;
-        memcpy(diff->data + aggr_beg_pos + 1, &aggr_count, sizeof(aggr_count));
-        memcpy(diff->data + diff->curr_checkpoint_end - sizeof(aggr_count) - 1
-            , &aggr_count
-            , sizeof(aggr_count)
-        );
-        diff->data[diff->curr_checkpoint_end - 1] = DIFF_AGGR_SEQ;
+        diff = diffstack_aggregate_end(&ed->diff, &aggr_info);
     }
-
     fill_screen_glyphs(ed, 0);
 };
 
 void
-key_backspace(struct editor *ed) {
-    struct selection *sel = ed->selv->data;
-    struct selection *sel_end = ed->selv->data + ed->selv->size;
+delete_selection(struct editor *ed
+    , struct selection *sel
+    , struct diffaggr_info *aggr_info
+    ) {
     struct document *doc = ed->doc;
-    struct diffstack *diff = ed->diff;
-    size_t diff_curr_beg = diff->curr_checkpoint_beg;
-    size_t diff_curr_end = diff->curr_checkpoint_end;
-    size_t aggr_count = 0;
-    struct line *line;
+    struct line *line = ed->doc->lines + sel->line;
+    uint8_t *line_beg;
+    uint8_t *line_end;
+    uint8_t *line_curr;
+    uint8_t *line_del_beg;
+    size_t pos;
+    size_t delta;
+    size_t i;
+
+    dbg_assert(line < doc->lines + doc->loaded_size);
+    dbg_assert(sel->glyph_beg != sel->glyph_end);
+
+    line_beg = begin_line(line, doc);
+    line_end = end_line(line, doc);
+    line_curr = sync_width_or_null(line, sel->glyph_beg, doc);
+    line_del_beg = line_curr;
+    if (line_curr && line_curr < line_end) {
+        pos = line_curr - line_beg;
+        if (!is_line_utf8(line, doc)) {
+            delta = min(line_end
+                , line_curr + (sel->glyph_end - sel->glyph_beg)
+            ) - line_curr;
+        } else {
+            delta = 0;
+            i = sel->glyph_beg;
+            while (line_curr != line_end && i != sel->glyph_end) {
+                line_curr  = next_utf8_char(line_curr);
+                i++;
+            }
+            dbg_assert(i <= sel->glyph_end);
+            delta = line_curr - line_del_beg;
+        }
+        diff_line_remove(&ed->diff, pos, line, doc, delta);
+        sel->glyph_end = sel->glyph_beg;
+        aggr_info->size++;
+    }
+}
+
+void
+delete_cursor(struct editor *ed
+    , struct selection *sel
+    , struct diffaggr_info *aggr_info
+    ) {
+    struct document *doc = ed->doc;
+    struct line *line = ed->doc->lines + sel->line;
     uint8_t *line_beg;
     uint8_t *line_end;
     uint8_t *line_curr;
     size_t pos;
     size_t delta;
-    size_t aggr_beg_pos;
 
-    if (ed->selv->size > 1) {
-        diff = diffstack_reserve(&ed->diff, SIZE_AGGR);
-        diff->curr_checkpoint_beg = diff->curr_checkpoint_end;
-        diff->curr_checkpoint_end = diff->curr_checkpoint_beg + SIZE_AGGR;
-        aggr_beg_pos =  diff->curr_checkpoint_beg;
-    }
-    while (sel != sel_end) {
-        line = ed->doc->lines + sel->line;
-        if (sel->glyph_end) {
-            line_beg = begin_line(line, doc);
-            line_end = end_line(line, doc);
-            line_curr = sync_width_or_null(line, sel->glyph_end - 1, doc);
-            if (line_curr && line_curr < line_end) {
-                pos = line_curr - line_beg;
-                if (is_line_utf8(line, doc)) {
-                    delta = next_utf8_char(line_curr) - line_curr;
-                } else {
-                    delta = 1;
-                }
-                diff_line_remove(&ed->diff, pos, line, doc, delta);
-                aggr_count++;
-            }
-            sel->glyph_beg--;
-            sel->glyph_end--;
+    dbg_assert(sel->glyph_end);
+    dbg_assert(line < doc->lines + doc->loaded_size);
+
+    line_beg = begin_line(line, doc);
+    line_end = end_line(line, doc);
+    line_curr = sync_width_or_null(line, sel->glyph_end - 1, doc);
+    if (line_curr && line_curr < line_end) {
+        pos = line_curr - line_beg;
+        if (is_line_utf8(line, doc)) {
+            delta = next_utf8_char(line_curr) - line_curr;
+        } else {
+            delta = 1;
         }
-        sel++;
+        diff_line_remove(&ed->diff, pos, line, doc, delta);
+        sel->glyph_beg--;
+        sel->glyph_end--;
+        aggr_info->size++;
     }
-    if (aggr_count == 0) {
-        diff->curr_checkpoint_beg = diff_curr_beg;
-        diff->curr_checkpoint_end = diff_curr_end;
-        return;
-    }
-    if (ed->selv->size > 1) {
-        diff = diffstack_reserve(&ed->diff, SIZE_AGGR);
-        diff->curr_checkpoint_beg = aggr_beg_pos;
-        diff->curr_checkpoint_end = diff->curr_checkpoint_end + SIZE_AGGR;
-        diff->last_checkpoint_beg = diff->curr_checkpoint_beg;
-        diff->last_checkpoint_end = diff->curr_checkpoint_end;
-        diff->data[aggr_beg_pos] = DIFF_AGGREGATE;
-        memcpy(diff->data + aggr_beg_pos + 1, &aggr_count, sizeof(aggr_count));
-        memcpy(diff->data + diff->curr_checkpoint_end - sizeof(aggr_count) - 1
-            , &aggr_count
-            , sizeof(aggr_count)
-        );
-        diff->data[diff->curr_checkpoint_end - 1] = DIFF_AGGR_SEQ;
-    }
+}
 
-    fill_screen_glyphs(ed, 0);
+void
+key_backspace(struct editor *ed) {
+    struct selection *sel = ed->selv->data;
+    struct selection *sel_end = ed->selv->data + ed->selv->size;
+    struct diffaggr_info aggr_info = { .size = 0 };
+
+    if (ed->selv->size == 1) {
+        if (sel->glyph_beg != sel->glyph_end) {
+            delete_selection(ed, sel, &aggr_info);
+        } else if (sel->glyph_end) {
+            delete_cursor(ed, sel, &aggr_info);
+        }
+    } else {
+        diffstack_aggregate_begin(&ed->diff, &aggr_info);
+        for (sel = ed->selv->data; sel != sel_end; sel++) {
+            if (sel->glyph_beg != sel->glyph_end) {
+                delete_selection(ed, sel, &aggr_info);
+            }
+        }
+        if (aggr_info.size == 0) {
+            for (sel = ed->selv->data; sel != sel_end; sel++) {
+                if (sel->glyph_end) {
+                    delete_cursor(ed, sel, &aggr_info);
+                }
+            }
+        }
+        diffstack_aggregate_end(&ed->diff, &aggr_info);
+    }
+    if (aggr_info.size) {
+        fill_screen_glyphs(ed, 0);
+    }
 }
 
 

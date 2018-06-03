@@ -19,6 +19,55 @@ diffstack_reserve(struct diffstack **ds, size_t size) {
     return res;
 }
 
+struct diffstack *
+diffstack_aggregate_begin(struct diffstack **diffptr
+    , struct diffaggr_info *info
+    ) {
+    struct diffstack *diff = diffstack_reserve(diffptr, SIZE_AGGR);
+
+    info->size = 0;
+    info->old_checkpoint_beg = diff->curr_checkpoint_beg;
+    info->old_checkpoint_end = diff->curr_checkpoint_end;
+    diff->curr_checkpoint_beg = diff->curr_checkpoint_end;
+    diff->curr_checkpoint_end = diff->curr_checkpoint_beg + SIZE_AGGR;
+    info->aggregate_beg = diff->curr_checkpoint_beg;
+
+    return diff;
+}
+
+struct diffstack *
+diffstack_aggregate_end(struct diffstack **diffptr
+    , struct diffaggr_info *info
+    ) {
+    struct diffstack *diff = *diffptr;
+
+    if (info->size == 0) {
+        diff->curr_checkpoint_beg = info->old_checkpoint_beg;
+        diff->curr_checkpoint_end = info->old_checkpoint_end;
+        return diff;
+    }
+    diff = diffstack_reserve(diffptr, SIZE_AGGR);
+    diff->curr_checkpoint_beg = info->aggregate_beg;
+    diff->curr_checkpoint_end = diff->curr_checkpoint_end + SIZE_AGGR;
+
+    diff->data[info->aggregate_beg] = DIFF_AGGREGATE;
+    memcpy(diff->data + info->aggregate_beg + 1
+        , &info->size
+        , sizeof(info->size)
+    );
+    memcpy(diff->data + diff->curr_checkpoint_end - sizeof(info->aggregate_beg)
+        - 1
+        , &info->size
+        , sizeof(info->size)
+    );
+    diff->data[diff->curr_checkpoint_end - 1] = DIFF_AGGR_SEQ;
+
+    diff->last_checkpoint_beg = diff->curr_checkpoint_beg;
+    diff->last_checkpoint_end = diff->curr_checkpoint_end;
+
+    return diff;
+}
+
 void
 diffstack_insert_merge(struct diffstack **ds
     , struct line *line
@@ -111,6 +160,7 @@ diffstack_insert_split(struct diffstack **ds
 
     if (res->curr_checkpoint_beg != res->curr_checkpoint_end
         && res->data[res->curr_checkpoint_beg] == DIFF_LINE_SPLIT
+        && y != DIFF_ADD_EOD
     ) {
         memcpy(&old_x
             , res->data + res->curr_checkpoint_beg + 1
@@ -347,6 +397,7 @@ diffstack_undo_line_split(uint8_t *diff_beg
     struct line *fst;
     struct line *snd;
     struct line *curr;
+    struct line *end;
 
     dbg_assert(diff_end == diff_beg + SIZE_SPLIT);
     dbg_assert(*diff_beg == DIFF_LINE_SPLIT);
@@ -357,16 +408,26 @@ diffstack_undo_line_split(uint8_t *diff_beg
 
     ensure(n != 0);
 
-    fst = doc->lines + y;
-    snd = fst + n;
+    if (y == DIFF_ADD_EOD) {
+        fst = doc->lines + doc->loaded_size - n;
+        end = doc->lines + doc->loaded_size;
+        for (curr = fst; curr != end; curr++) {
+            free_line(curr, doc);
+        }
+        memcpy(fst, end, sizeof(struct line));
+        doc->loaded_size -= n;
+    } else {
+        fst = doc->lines + y;
+        snd = fst + n;
 
-    merge_lines(fst, snd, doc);
+        merge_lines(fst, snd, doc);
 
-    for (curr = fst + 1; curr != snd + 1; curr++) {
-        free_line(curr, doc);
+        for (curr = fst + 1; curr != snd + 1; curr++) {
+            free_line(curr, doc);
+        }
+        memcpy(fst + 1, snd + 1, (doc->loaded_size + 1 - n) * sizeof(*fst));
+        doc->loaded_size -= n;
     }
-    memcpy(fst + 1, snd + 1, (doc->loaded_size + 1 - n) * sizeof(*fst));
-    doc->loaded_size -= n;
 }
 
 void
@@ -657,6 +718,7 @@ diff_line_merge(struct diffstack **ds
     struct document *res = *doc;
     struct line *from = res->lines + y;
     struct line *into = res->lines + y - 1;
+    struct line *trampoline_end = res->lines + res->loaded_size + 1;
 
     ensure(x == 0 && y > 0);
 
@@ -666,7 +728,8 @@ diff_line_merge(struct diffstack **ds
     merge_lines(into, from, res);
 
     free_line(from, res);
-    memmove(from, from + 1, (res->loaded_size + 1) * sizeof(struct line));
+
+    memmove(from, from + 1, (from + 1 - trampoline_end) * sizeof(struct line));
     res->loaded_size--;
 }
 

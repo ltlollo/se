@@ -1364,9 +1364,9 @@ copy_extern_line(struct line *line
 
 void
 insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
+    struct document *res = *doc;
     struct line *beg;
     struct line *rst;
-    struct document *res;
     uint8_t *fst_beg;
     uint8_t *fst_end;
     uint8_t *snd_beg;
@@ -1376,26 +1376,30 @@ insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
     if (n == 0) {
         return;
     }
-    res = insert_empty_lines(y + 1, n, doc);
+    if (y == DIFF_ADD_EOD) {
+        res = insert_empty_lines(res->loaded_size, n, doc);
+    } else {
+        res = insert_empty_lines(y + 1, n, doc);
 
-    beg = res->lines + y;
-    rst = beg + n;
+        beg = res->lines + y;
+        rst = beg + n;
 
-    fst_beg = begin_line(beg, res);
-    fst_end = fst_beg + x;
-    snd_beg = fst_end;
-    snd_end = fst_beg + beg->size;
-    rst_size = snd_end - snd_beg;
+        fst_beg = begin_line(beg, res);
+        fst_end = fst_beg + x;
+        snd_beg = fst_end;
+        snd_end = fst_beg + beg->size;
+        rst_size = snd_end - snd_beg;
 
-    copy_extern_line(rst, snd_beg, rst_size, res);
+        copy_extern_line(rst, snd_beg, rst_size, res);
 
-    if (!is_line_utf8(beg, res)
-        || next_utf8_or_null(snd_beg, snd_end) == NULL) {
-        convert_line_external(beg, res);
-        beg->extern_line->utf8_status = UTF8_DIRTY;
-        rst->extern_line->utf8_status = UTF8_DIRTY;
+        if (!is_line_utf8(beg, res)
+            || next_utf8_or_null(snd_beg, snd_end) == NULL) {
+            convert_line_external(beg, res);
+            beg->extern_line->utf8_status = UTF8_DIRTY;
+            rst->extern_line->utf8_status = UTF8_DIRTY;
+        }
+        beg->size = fst_end - fst_beg;
     }
-    beg->size = fst_end - fst_beg;
 }
 
 void
