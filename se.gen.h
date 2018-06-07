@@ -97,6 +97,7 @@ void alt_cursors_down(struct editor *, int);
 void alt_cursors_up(struct editor *, int);
 void move_cursors_right(struct selectarr *, int, struct document *);
 void move_cursors_left(struct selectarr *, int, struct document *);
+void add_to_cursor(struct editor *, struct selection *, struct line *, uint8_t *, size_t, struct diffaggr_info *);
 void key_insert_chars(struct editor *, int, int);
 void delete_selection(struct editor *, struct selection *, struct diffaggr_info *);
 void delete_cursor(struct editor *, struct selection *, struct diffaggr_info *);

@@ -285,17 +285,42 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
 }
 
 void
-key_insert_chars(struct editor *ed, int key, int mod) {
-    struct selection *sel = ed->selv->data;
-    struct selection *sel_end = ed->selv->data + ed->selv->size;
-    struct selection *sel_fin = sel_end - 1;
-    struct document *doc = ed->doc;
-    struct diffstack *diff __unused = ed->diff;
-    struct diffaggr_info aggr_info;
-    int add_new_line = 0;
+add_to_cursor(struct editor *ed
+    , struct selection *sel
+    , struct line *line
+    , uint8_t *buf
+    , size_t bufsz
+    , struct diffaggr_info *aggr_info
+    ) {
     uint8_t *line_beg;
     uint8_t *line_curr;
     size_t pos;
+
+    line = ed->doc->lines + sel->line;
+    line_beg = begin_line(line, ed->doc);
+    line_curr = sync_width_or_null(line, sel->glyph_end, ed->doc);
+    if (line_curr) {
+        pos = line_curr - line_beg;
+        diff_line_insert(&ed->diff
+            , pos
+            , line
+            , ed->doc
+            , buf
+            , bufsz
+        );
+        sel->glyph_beg++;
+        sel->glyph_end++;
+        aggr_info->size++;
+    }
+}
+
+void
+key_insert_chars(struct editor *ed, int key, int mod) {
+    // beware to not cache ed members, or reload them when necessay
+    struct selection *sel = ed->selv->data;
+    struct selection *sel_end = ed->selv->data + ed->selv->size;
+    struct selection *sel_fin = sel_end - 1;
+    struct diffaggr_info aggr_info;
     struct line *line;
     uint8_t buf[4];
     size_t bufsz;
@@ -306,49 +331,40 @@ key_insert_chars(struct editor *ed, int key, int mod) {
     buf[0] = key & 0x7f;
     bufsz = 1;
 
-    //if (ed->selv->size == 1) {
-    //    if (sel->line != ed->doc->loaded_size
-    //        && sel->glyph_beg == sel->glyph_end
-    //    ) {
-    //    
-    //    }
-    //} else {
-    //
-    //}
-
-    if (sel_fin->line == ed->doc->loaded_size) {
-        add_new_line = 1;
-    }
-    if (ed->selv->size > 1 || add_new_line) {
-        diff = diffstack_aggregate_begin(&ed->diff, &aggr_info);
-    }
-    if (add_new_line) {
-        diff_line_split(&ed->diff, 0, DIFF_ADD_EOD, &ed->doc);
-        diff = ed->diff;
-        doc  = ed->doc;
-        aggr_info.size++;
-    }
-    while (sel != sel_end) {
-        line = ed->doc->lines + sel->line;
-        line_beg = begin_line(line, doc);
-        line_curr = sync_width_or_null(line, sel->glyph_end, doc);
-        if (line_curr) {
-            pos = line_curr - line_beg;
-            diff_line_insert(&ed->diff
-                , pos
-                , line
-                , ed->doc
-                , buf
-                , bufsz
-            );
-            sel->glyph_beg++;
-            sel->glyph_end++;
+    if (ed->selv->size == 1) {
+        if (sel->line != ed->doc->loaded_size
+            && sel->glyph_beg == sel->glyph_end
+        ) {
+            line = ed->doc->lines + sel->line;
+            add_to_cursor(ed, sel, line, buf, bufsz, &aggr_info);
+        } else {
+            diffstack_aggregate_begin(&ed->diff, &aggr_info);
+            if (sel->line == sel->glyph_end) {
+                diff_line_split(&ed->diff, 0, DIFF_ADD_EOD, &ed->doc);
+                aggr_info.size++;
+            } else if (sel->glyph_beg != sel->glyph_end) {
+                delete_selection(ed, sel, &aggr_info);
+            }
+            line = ed->doc->lines + sel->line;
+            add_to_cursor(ed, sel, line, buf, bufsz, &aggr_info);
+            diffstack_aggregate_end(&ed->diff, &aggr_info);
+        }
+    } else {
+        diffstack_aggregate_begin(&ed->diff, &aggr_info);
+        if (sel_fin->line == ed->doc->loaded_size) {
+            diff_line_split(&ed->diff, 0, DIFF_ADD_EOD, &ed->doc);
             aggr_info.size++;
         }
-        sel++;
-    }
-    if (ed->selv->size > 1) {
-        diff = diffstack_aggregate_end(&ed->diff, &aggr_info);
+        for (sel = ed->selv->data; sel != sel_end; sel++) {
+            if (sel->glyph_beg != sel->glyph_end) {
+                delete_selection(ed, sel, &aggr_info);
+            }
+        }
+        for (sel = ed->selv->data; sel != sel_end; sel++) {
+            line = ed->doc->lines + sel->line;
+            add_to_cursor(ed, sel, line, buf, bufsz, &aggr_info);
+        }
+        diffstack_aggregate_end(&ed->diff, &aggr_info);
     }
     fill_screen_glyphs(ed, 0);
 };
