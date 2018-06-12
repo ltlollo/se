@@ -17,7 +17,7 @@ bin:
 		se.c lex.c util.c fio.c comp.c ./ext/unifont.o $(LDFLAGS) -o se
 
 release: umaph ofont
-	@$(SH) ./ext/gen_headers se.c > se.gen.h
+	@$(SH) ./ext/gen_headers $(SRC) > se.gen.h
 	$(CC) -DNDEBUG -DLINK_FONT -D_GNU_SOURCE $(RELEASE_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ext/unifont.o $(LDFLAGS) -o se
 
