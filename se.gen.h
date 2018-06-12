@@ -82,6 +82,10 @@ void diffstack_insert_chars_add(struct diffstack **, uint8_t *, size_t, size_t, 
 void diffstack_insert_chars_del(struct diffstack **, uint8_t *, size_t, size_t, size_t);
 void diffstack_undo_line_merge(uint8_t *, uint8_t *, struct document *);
 void diffstack_undo_line_split(uint8_t *, uint8_t *, struct document *);
+void diffchars_unpack(char *, size_t *, size_t *);
+void diffchars_pack(char *, size_t, size_t);
+void diffsplit_unpack(char *, size_t *, size_t *, size_t *);
+void diffsplit_pack(char *, size_t, size_t, size_t);
 void diffstack_undo_chars_del(uint8_t *, uint8_t *, struct document *);
 void diffstack_undo_chars_add(uint8_t *, uint8_t *, struct document *);
 uint8_t * diffstack_curr_mvback(uint8_t *);

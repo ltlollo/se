@@ -91,17 +91,10 @@ diffstack_insert_merge(struct diffstack **ds
     if (res->curr_checkpoint_beg != res->curr_checkpoint_end
         && res->data[res->curr_checkpoint_beg] == DIFF_LINE_MERGE
     ) {
-        memcpy(&old_x
-            , res->data + res->curr_checkpoint_beg + 1
-            , sizeof(size_t)
-        );
-        memcpy(&old_y
-            , res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
-            , sizeof(size_t)
-        );
-        memcpy(&old_size
-            , res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
-            , sizeof(size_t)
+        diffsplit_unpack(res->data + res->curr_checkpoint_beg
+            , &old_x
+            , &old_y
+            , &old_size
         );
         if (old_x != 0 || old_y != y) {
             goto MERGE_DIFFERENT_DIFF_CLASS;
@@ -109,32 +102,13 @@ diffstack_insert_merge(struct diffstack **ds
         x = line[-1].size;
         y = y - 1;
         size += old_size;
-        memcpy(res->data + res->curr_checkpoint_beg + 1
-            , &x
-            , sizeof(size_t)
-        );
-        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
-            , &y
-            , sizeof(size_t)
-        );
-        memcpy(res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
-            , &size
-            , sizeof(size_t)
-        );
+        diffsplit_pack(res->data + res->curr_checkpoint_beg, x, y, size);
     } else {
 MERGE_DIFFERENT_DIFF_CLASS:
         res->curr_checkpoint_beg = res->curr_checkpoint_end;
         res->curr_checkpoint_end = res->curr_checkpoint_beg + SIZE_SPLIT;
         res->data[res->curr_checkpoint_beg] = DIFF_LINE_MERGE;
-        memcpy(res->data + res->curr_checkpoint_beg + 1, &x, sizeof(size_t));
-        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
-            , &y
-            , sizeof(size_t)
-        );
-        memcpy(res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
-            , &size
-            , sizeof(size_t)
-        );
+        diffsplit_pack(res->data + res->curr_checkpoint_beg, x, y, size);
         res->data[res->curr_checkpoint_end - 1] = DIFF_SPLIT_SEP;
     }
     res->last_checkpoint_beg = res->curr_checkpoint_beg;
@@ -162,17 +136,10 @@ diffstack_insert_split(struct diffstack **ds
         && res->data[res->curr_checkpoint_beg] == DIFF_LINE_SPLIT
         && y != DIFF_ADD_EOD
     ) {
-        memcpy(&old_x
-            , res->data + res->curr_checkpoint_beg + 1
-            , sizeof(size_t)
-        );
-        memcpy(&old_y
-            , res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
-            , sizeof(size_t)
-        );
-        memcpy(&old_size
-            , res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
-            , sizeof(size_t)
+        diffsplit_unpack(res->data + res->curr_checkpoint_beg
+            , &old_x
+            , &old_y
+            , &old_size
         );
         if (x != 0 || old_x != 0 || old_y + old_size != y) {
             goto SPLIT_DIFFERENT_DIFF_CLASS;
@@ -187,15 +154,7 @@ SPLIT_DIFFERENT_DIFF_CLASS:
         res->curr_checkpoint_beg = res->curr_checkpoint_end;
         res->curr_checkpoint_end = res->curr_checkpoint_beg + SIZE_SPLIT;
         res->data[res->curr_checkpoint_beg] = DIFF_LINE_SPLIT;
-        memcpy(res->data + res->curr_checkpoint_beg + 1, &x, sizeof(size_t));
-        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
-            , &y
-            , sizeof(size_t)
-        );
-        memcpy(res->data + res->curr_checkpoint_beg + 1 + 2 * sizeof(size_t)
-            , &size
-            , sizeof(size_t)
-        );
+        diffsplit_pack(res->data + res->curr_checkpoint_beg, x, y, size);
         res->data[res->curr_checkpoint_end - 1] = DIFF_SPLIT_SEP;
     }
     res->last_checkpoint_beg = res->curr_checkpoint_beg;
@@ -228,16 +187,9 @@ diffstack_insert_chars_add(struct diffstack **ds
     if (res->curr_checkpoint_beg != res->curr_checkpoint_end
         && res->data[res->curr_checkpoint_beg] == DIFF_CHARS_ADD
     ) {
-        seq_old_beg = res->data + res->curr_checkpoint_beg + 2
-            + sizeof(size_t) * 2;
+        seq_old_beg = res->data + res->curr_checkpoint_beg + DIFF_CHARS_OFF;
         seq_old_end = res->data + res->curr_checkpoint_end - 1;
-        memcpy(&old_x, res->data + res->curr_checkpoint_beg + 1
-            , sizeof(size_t)
-        );
-        memcpy(&old_y
-            , res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
-            , sizeof(size_t)
-        );
+        diffchars_unpack(res->data + res->curr_checkpoint_beg, &old_x, &old_y);
         dbg_assert(seq_old_end > seq_old_beg);
         dbg_assert(seq_old_end - seq_old_beg != 0);
         if (old_y != y || old_x + (seq_old_end - seq_old_beg) != x) {
@@ -258,12 +210,8 @@ ADD_DIFFERENT_DIFF_CLASS:
         res->curr_checkpoint_end = res->curr_checkpoint_beg + EMPTY_DIFF
             + size;
         res->data[res->curr_checkpoint_beg] = DIFF_CHARS_ADD;
-        memcpy(res->data + res->curr_checkpoint_beg + 1, &x, sizeof(size_t));
-        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
-            , &y
-            , sizeof(size_t)
-        );
-        memcpy(res->data + res->curr_checkpoint_beg + 2 + 2 * sizeof(size_t)
+        diffchars_pack(res->data + res->curr_checkpoint_beg, x, y);
+        memcpy(res->data + res->curr_checkpoint_beg + DIFF_CHARS_OFF
             , str
             , size
         );
@@ -303,16 +251,9 @@ diffstack_insert_chars_del(struct diffstack **ds
     if (res->curr_checkpoint_beg != res->curr_checkpoint_end
         && res->data[res->curr_checkpoint_beg] == DIFF_CHARS_DEL
     ) {
-        seq_old_beg = res->data + res->curr_checkpoint_beg + 2
-            + sizeof(size_t) * 2;
+        seq_old_beg = res->data + res->curr_checkpoint_beg + DIFF_CHARS_OFF;
         seq_old_end = res->data + res->curr_checkpoint_end - 1;
-        memcpy(&old_x, res->data + res->curr_checkpoint_beg + 1
-            , sizeof(size_t)
-        );
-        memcpy(&old_y
-            , res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
-            , sizeof(size_t)
-        );
+        diffchars_unpack(res->data + res->curr_checkpoint_beg, &old_x, &old_y);
         dbg_assert(seq_old_end > seq_old_beg);
         dbg_assert(seq_old_end - seq_old_beg != 0);
         if (old_y != y
@@ -336,15 +277,8 @@ DEL_DIFFERENT_DIFF_CLASS:
         res->curr_checkpoint_end = res->curr_checkpoint_beg + EMPTY_DIFF
             + size;
         res->data[res->curr_checkpoint_beg] = DIFF_CHARS_DEL;
-        memcpy(res->data + res->curr_checkpoint_beg + 1
-            , &x_end
-            , sizeof(size_t)
-        );
-        memcpy(res->data + res->curr_checkpoint_beg + 1 + sizeof(size_t)
-            , &y
-            , sizeof(size_t)
-        );
-        rmemcpy(res->data + res->curr_checkpoint_beg + 2 + 2 * sizeof(size_t)
+        diffchars_pack(res->data + res->curr_checkpoint_beg, x_end, y);
+        rmemcpy(res->data + res->curr_checkpoint_beg + DIFF_CHARS_OFF
             , str
             , size
         );
@@ -431,6 +365,32 @@ diffstack_undo_line_split(uint8_t *diff_beg
 }
 
 void
+diffchars_unpack(char *diff_beg, size_t *x, size_t *y) {
+    memcpy(x, diff_beg + 1 + 0 * sizeof(size_t), sizeof(size_t));
+    memcpy(y, diff_beg + 1 + 1 * sizeof(size_t), sizeof(size_t));
+}
+
+void
+diffchars_pack(char *diff_beg, size_t x, size_t y) {
+    memcpy(diff_beg + 1 + 0 * sizeof(size_t), &x, sizeof(size_t));
+    memcpy(diff_beg + 1 + 1 * sizeof(size_t), &y, sizeof(size_t));
+}
+
+void
+diffsplit_unpack(char *diff_beg, size_t *x, size_t *y, size_t *n) {
+    memcpy(x, diff_beg + 1 + 0 * sizeof(size_t), sizeof(size_t));
+    memcpy(y, diff_beg + 1 + 1 * sizeof(size_t), sizeof(size_t));
+    memcpy(n, diff_beg + 1 + 2 * sizeof(size_t), sizeof(size_t));
+}
+
+void
+diffsplit_pack(char *diff_beg, size_t x, size_t y, size_t n) {
+    memcpy(diff_beg + 1 + 0 * sizeof(size_t), &x, sizeof(size_t));
+    memcpy(diff_beg + 1 + 1 * sizeof(size_t), &y, sizeof(size_t));
+    memcpy(diff_beg + 1 + 2 * sizeof(size_t), &n, sizeof(size_t));
+}
+
+void
 diffstack_undo_chars_del(uint8_t *diff_beg
     , uint8_t *diff_end
     , struct document *doc
@@ -447,10 +407,8 @@ diffstack_undo_chars_del(uint8_t *diff_beg
     dbg_assert(diff_end > diff_beg + EMPTY_DIFF);
     dbg_assert(*diff_beg == DIFF_CHARS_DEL);
 
-    memcpy(&x, diff_beg + 1, sizeof(size_t));
-    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
-
-    seq_beg = diff_beg + 2 + 2 * sizeof(size_t);
+    diffchars_unpack(diff_beg, &x, &y);
+    seq_beg = diff_beg + DIFF_CHARS_OFF;
     seq_end = diff_end - 1;
     seq_size = seq_end - seq_beg;
 
@@ -491,10 +449,8 @@ diffstack_undo_chars_add(uint8_t *diff_beg
     dbg_assert(diff_end > diff_beg + EMPTY_DIFF);
     dbg_assert(*diff_beg == DIFF_CHARS_ADD);
 
-    memcpy(&x, diff_beg + 1, sizeof(size_t));
-    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
-
-    seq_beg = diff_beg + 2 + 2 * sizeof(size_t);
+    diffchars_unpack(diff_beg, &x, &y);
+    seq_beg = diff_beg + DIFF_CHARS_OFF;
     seq_end = diff_end - 1;
     seq_size = seq_end - seq_beg;
 
