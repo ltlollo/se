@@ -114,8 +114,6 @@ alt_cursors_up(struct editor *ed, int mod) {
         );
         selv->focus = selv->data;
         selv->focus->line--;
-        selv->focus->glyph_beg = 0;
-        selv->focus->glyph_end = 0;
     } else if ((mod & KMOD_LSHIFT)
         && selv->focus == selv->data + selv->size - 1
     ) {
@@ -446,33 +444,90 @@ delete_cursor(struct editor *ed
     }
 }
 
+int
+is_lines_merge(struct selectarr *selv) {
+    int res = 1;
+    struct selection *sel = selv->data;
+    struct selection *sel_end = selv->data + selv->size;
+
+    for (; sel != sel_end; sel++) {
+        if (sel->glyph_beg != 0 || sel->glyph_beg != sel->glyph_end) {
+            return 0;
+        }
+    }
+    return res;
+}
+
+void
+delete_nl(struct editor *ed
+    , struct selection *sel
+    , struct diffaggr_info *aggr_info
+    ) {
+    struct line *line = ed->doc->lines + sel->line - 1;
+
+    if (sel->line
+        && sel->glyph_beg == sel->glyph_end
+        && sel->glyph_beg == 0
+    ) {
+        sel->glyph_beg = glyphs_in_line(line, ed->doc);
+        sel->glyph_end = sel->glyph_beg;
+        diff_line_merge(&ed->diff, 0, sel->line, &ed->doc);
+        aggr_info->size++;
+        sel->line--;
+    }
+}
+
+void
+delete_nls(struct editor *ed, struct diffaggr_info *aggr_info) {
+    struct selection *sel = ed->selv->data;
+    struct selection *sel_end = ed->selv->data + ed->selv->size;
+
+    if (ed->selv->size == 1) {
+        delete_nl(ed, sel, aggr_info);
+        aggr_info->size++;
+
+    } else {
+        diffstack_aggregate_begin(&ed->diff, aggr_info);
+        for (sel = sel_end - 1; sel != ed->selv->data - 1; sel--) {
+            delete_nl(ed, sel, aggr_info);
+        }
+        diffstack_aggregate_end(&ed->diff, aggr_info);
+    }
+    ed->selv->size = 1;
+    ed->selv->focus = ed->selv->data;
+}
+
 void
 key_backspace(struct editor *ed) {
     struct selection *sel = ed->selv->data;
     struct selection *sel_end = ed->selv->data + ed->selv->size;
     struct diffaggr_info aggr_info = { .size = 0 };
 
-    if (ed->selv->size == 1) {
-        if (sel->glyph_beg != sel->glyph_end) {
-            delete_selection(ed, sel, &aggr_info);
-        } else if (sel->glyph_end) {
-            delete_cursor(ed, sel, &aggr_info);
-        }
+    if (is_lines_merge(ed->selv)) {
+        delete_nls(ed, &aggr_info);
     } else {
-        diffstack_aggregate_begin(&ed->diff, &aggr_info);
-        for (sel = ed->selv->data; sel != sel_end; sel++) {
+        if (ed->selv->size == 1) {
             if (sel->glyph_beg != sel->glyph_end) {
                 delete_selection(ed, sel, &aggr_info);
+            } else if (sel->glyph_end) {
+                delete_cursor(ed, sel, &aggr_info);
             }
-        }
-        if (aggr_info.size == 0) {
+        } else {
+            diffstack_aggregate_begin(&ed->diff, &aggr_info);
             for (sel = ed->selv->data; sel != sel_end; sel++) {
-                if (sel->glyph_end) {
-                    delete_cursor(ed, sel, &aggr_info);
+                if (sel->glyph_beg != sel->glyph_end) {
+                    delete_selection(ed, sel, &aggr_info);
                 }
             }
+            if (aggr_info.size == 0) {
+                for (sel = ed->selv->data; sel != sel_end; sel++) {
+                    if (sel->glyph_end) {
+                        delete_cursor(ed, sel, &aggr_info);
+                    }
+                }
+            }
+            diffstack_aggregate_end(&ed->diff, &aggr_info);
         }
-        diffstack_aggregate_end(&ed->diff, &aggr_info);
     }
     if (aggr_info.size) {
         fill_screen_glyphs(ed, 0);

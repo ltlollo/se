@@ -87,6 +87,8 @@ diffstack_insert_merge(struct diffstack **ds
     ensure(res);
 
     dbg_assert(x == 0 && y != 0);
+    x = line[-1].size;
+    y = y - 1;
 
     if (res->curr_checkpoint_beg != res->curr_checkpoint_end
         && res->data[res->curr_checkpoint_beg] == DIFF_LINE_MERGE
@@ -96,13 +98,13 @@ diffstack_insert_merge(struct diffstack **ds
             , &old_y
             , &old_size
         );
-        if (old_x != 0 || old_y != y) {
+        if ((old_x != 0 || old_y != y + size) || 1) {
+            // TODO: propagate if two calsses are merged, if so must not
+            // increment the diffaggr_info size
             goto MERGE_DIFFERENT_DIFF_CLASS;
         }
-        x = line[-1].size;
-        y = y - 1;
-        size += old_size;
-        diffsplit_pack(res->data + res->curr_checkpoint_beg, x, y, size);
+        old_size += size;
+        diffsplit_pack(res->data + res->curr_checkpoint_beg, x, y, old_size);
     } else {
 MERGE_DIFFERENT_DIFF_CLASS:
         res->curr_checkpoint_beg = res->curr_checkpoint_end;
@@ -589,6 +591,43 @@ diffstack_redo_line_merge(uint8_t *diff_beg
     , uint8_t *diff_end
     , struct document *doc
     ) {
+    size_t x;
+    size_t y;
+    size_t n;
+    struct line *fst;
+    struct line *snd;
+    struct line *curr;
+    struct line *end;
+
+    dbg_assert(diff_end == diff_beg + SIZE_SPLIT);
+    dbg_assert(*diff_beg == DIFF_LINE_MERGE);
+
+    memcpy(&x, diff_beg + 1, sizeof(size_t));
+    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
+    memcpy(&n, diff_beg + 1 + 2 * sizeof(size_t), sizeof(size_t));
+
+    ensure(n != 0);
+
+    if (y == DIFF_ADD_EOD) {
+        fst = doc->lines + doc->loaded_size - n;
+        end = doc->lines + doc->loaded_size;
+        for (curr = fst; curr != end; curr++) {
+            free_line(curr, doc);
+        }
+        memcpy(fst, end, sizeof(struct line));
+        doc->loaded_size -= n;
+    } else {
+        fst = doc->lines + y;
+        snd = fst + n;
+
+        merge_lines(fst, snd, doc);
+
+        for (curr = fst + 1; curr != snd + 1; curr++) {
+            free_line(curr, doc);
+        }
+        memcpy(fst + 1, snd + 1, (doc->loaded_size + 1 - n) * sizeof(*fst));
+        doc->loaded_size -= n;
+    }
 }
 
 void
@@ -599,37 +638,42 @@ diffstack_redo_aggregate(uint8_t *diff_aggr_beg
     uint8_t *diff_beg = diff_aggr_beg + SIZE_AGGR;
     uint8_t *diff_end = diff_aggr_end - SIZE_AGGR;
     uint8_t *diff_curr;
+    uint8_t *diff_curr_end;
     size_t aggr_size;
     size_t i;
 
     dbg_assert(diff_aggr_beg[0] == DIFF_AGGREGATE);
     memcpy(&aggr_size, diff_aggr_beg + 1, sizeof(aggr_size));
 
+    diff_curr = diff_beg;
+    diff_curr_end = diff_curr;
+
     for (i = 0; i < aggr_size; i++) {
-        diff_curr = diffstack_curr_mvback(diff_end);
-        ensure(diff_curr >= diff_beg);
+        diff_curr_end  = diffstack_curr_mvforw(diff_curr);
+        ensure(diff_curr <= diff_curr_end);
+        ensure(diff_curr_end <= diff_end);
         switch (*diff_curr) {
             case DIFF_CHARS_ADD:
-                diffstack_redo_chars_add(diff_curr, diff_end, doc);
+                diffstack_redo_chars_add(diff_curr, diff_curr_end, doc);
                 break;
             case DIFF_CHARS_DEL:
-                diffstack_redo_chars_del(diff_curr, diff_end, doc);
+                diffstack_redo_chars_del(diff_curr, diff_curr_end, doc);
                 break;
             case DIFF_LINE_SPLIT:
-                diffstack_redo_line_split(diff_curr, diff_end, doc);
+                diffstack_redo_line_split(diff_curr, diff_curr_end, doc);
                 break;
             case DIFF_LINE_MERGE:
-                diffstack_redo_line_merge(diff_curr, diff_end, doc);
+                diffstack_redo_line_merge(diff_curr, diff_curr_end, doc);
                 break;
             case DIFF_AGGREGATE:
-                diffstack_redo_aggregate(diff_curr, diff_end, doc);
+                diffstack_redo_aggregate(diff_curr, diff_curr_end, doc);
                 break;
             default:
                 ensure(0);
         }
-        diff_end = diff_curr;
+        diff_curr = diff_curr_end;
     }
-    dbg_assert(diff_curr == diff_beg);
+    dbg_assert(diff_curr_end == diff_end);
 }
 
 uint8_t *
@@ -815,7 +859,6 @@ diffstack_redo(struct editor *ed) {
     return 0;
 }
 
-
 int
 init_diffstack(struct diffstack **ds, size_t alloc) {
     struct diffstack *res;
@@ -917,7 +960,7 @@ diff_line_merge(struct diffstack **ds
 
     free_line(from, res);
 
-    memmove(from, from + 1, (from + 1 - trampoline_end) * sizeof(struct line));
+    memmove(from, from + 1, (trampoline_end - from - 1) * sizeof(struct line));
     res->loaded_size--;
 }
 

@@ -112,6 +112,9 @@ void add_to_cursor(struct editor *, struct selection *, struct line *, uint8_t *
 void key_insert_chars(struct editor *, int, int);
 void delete_selection(struct editor *, struct selection *, struct diffaggr_info *);
 void delete_cursor(struct editor *, struct selection *, struct diffaggr_info *);
+int is_lines_merge(struct selectarr *);
+void delete_nl(struct editor *, struct selection *, struct diffaggr_info *);
+void delete_nls(struct editor *, struct diffaggr_info *);
 void key_backspace(struct editor *);
 void insert_nl(struct editor *, struct selection *, struct diffaggr_info *);
 void key_return(struct editor *);
