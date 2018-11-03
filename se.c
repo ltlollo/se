@@ -1416,11 +1416,16 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
         switch(event.type) {
             case SDL_KEYDOWN:
                 if (mod & KMOD_LCTRL) {
-                    if (key == 'u') {
+                    switch (key) {
+                        case 'u':
                         diffstack_undo(ed);
                         break;
-                    } else if (key == 'q') {
+                        case 'r':
+                        diffstack_redo(ed);
+                        break;
+                        case 'q':
                         exit(0);
+                        break;
                     }
                 }
                 switch (key) {
@@ -1431,7 +1436,10 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
                     case SDLK_LEFT:     case SDLK_PAGEUP:   case SDLK_PAGEDOWN:
                         key_move_input(ed, key, mod);
                         break;
-                    case SDLK_DELETE:   case SDLK_RETURN:   case SDLK_ESCAPE:
+                    case SDLK_DELETE:   case SDLK_ESCAPE:
+                        break;
+                    case SDLK_RETURN:
+                        key_return(ed);
                         break;
                     case SDLK_BACKSPACE:
                         key_backspace(ed);

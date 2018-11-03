@@ -479,5 +479,53 @@ key_backspace(struct editor *ed) {
     }
 }
 
+void
+insert_nl(struct editor *ed
+    , struct selection *sel
+    , struct diffaggr_info *aggr_info
+    ) {
+    struct line *line;
+    uint8_t *line_beg;
+    uint8_t *line_curr;
+    size_t pos;
 
+    line = ed->doc->lines + sel->line;
+    line_beg = begin_line(line, ed->doc);
+    line_curr = sync_width_or_null(line, sel->glyph_end, ed->doc);
+    if (line_curr) {
+        pos = line_curr - line_beg;
+        diff_line_split(&ed->diff
+            , pos
+            , sel->line
+            , &ed->doc
+        );
+        sel->glyph_beg = 0;
+        sel->glyph_end = 0;
+        sel->line += sel - ed->selv->data + 1;
+        aggr_info->size++;
+    }
+}
+
+void
+key_return(struct editor *ed) {
+    struct selection *sel = ed->selv->data;
+    struct selection *sel_end = ed->selv->data + ed->selv->size;
+    struct diffaggr_info aggr_info = { .size = 0 };
+
+    if (ed->selv->size == 1 && sel->glyph_end == sel->glyph_beg) {
+        insert_nl(ed, sel, &aggr_info);
+    } else {
+        diffstack_aggregate_begin(&ed->diff, &aggr_info);
+        for (sel = sel_end - 1; sel != ed->selv->data - 1; sel--) {
+            if (sel->glyph_beg != sel->glyph_end) {
+                delete_selection(ed, sel, &aggr_info);
+            }
+            insert_nl(ed, sel, &aggr_info);
+        }
+        diffstack_aggregate_end(&ed->diff, &aggr_info);
+    }
+    if (aggr_info.size != 0) {
+        fill_screen_glyphs(ed, 0);
+    }
+}
 

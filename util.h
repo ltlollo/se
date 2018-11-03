@@ -29,7 +29,7 @@
             fprintf(stderr, "Invariant violated %s:%d\n  %s"\
                 ,__FILE__, __LINE__, #cond\
             );\
-            __asm__ volatile ("int $3\n\t");\
+            /* __asm__ volatile ("int $3\n\t"); */ \
         }\
     } while (0)
 #endif

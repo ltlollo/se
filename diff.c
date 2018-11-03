@@ -423,9 +423,9 @@ diffstack_undo_chars_del(uint8_t *diff_beg
     restore_seq_beg = restore_seq_end - seq_size;
 
     dbg_assert(restore_seq_beg >= begin_line(line, doc));
-    dbg_assert(restore_seq_end <= end_line(line, doc));
+    dbg_assert(restore_seq_end <= begin_line(line, doc) + line->alloc);
 
-    memmove(restore_seq_end, restore_seq_beg, line->size);
+    memmove(restore_seq_end, restore_seq_beg, line->size - x + seq_size);
     rmemcpy(restore_seq_beg, seq_beg, seq_size);
 
     line->size += seq_size;
@@ -472,6 +472,166 @@ diffstack_undo_chars_add(uint8_t *diff_beg
     line->size -= seq_size;
 }
 
+
+void
+diffstack_redo_chars_add(uint8_t *diff_beg
+    , uint8_t *diff_end
+    , struct document *doc
+    ) {
+    size_t x;
+    size_t y;
+    uint8_t *seq_beg;
+    uint8_t *seq_end;
+    size_t seq_size;
+    struct line *line;
+    uint8_t *restore_seq_beg;
+    uint8_t *restore_seq_end;
+
+    dbg_assert(diff_end > diff_beg + EMPTY_DIFF);
+    dbg_assert(*diff_beg == DIFF_CHARS_ADD);
+
+    diffchars_unpack(diff_beg, &x, &y);
+    seq_beg = diff_beg + DIFF_CHARS_OFF;
+    seq_end = diff_end - 1;
+    seq_size = seq_end - seq_beg;
+
+    dbg_assert(seq_end > seq_beg);
+
+    line = doc->lines + y;
+    ensure(!is_line_internal(line, doc));
+
+    reserve_extern_line(line, seq_size, doc);
+
+    restore_seq_beg = line->extern_line->data + x;
+    restore_seq_end = restore_seq_beg + seq_size;
+
+    dbg_assert(restore_seq_end >= begin_line(line, doc));
+    dbg_assert(restore_seq_beg <= end_line(line, doc));
+
+    memmove(restore_seq_end, restore_seq_beg, line->size - x);
+    memcpy(restore_seq_beg, seq_beg, seq_size);
+
+    line->size += seq_size;
+}
+
+void
+diffstack_redo_chars_del(uint8_t *diff_beg
+    , uint8_t *diff_end
+    , struct document *doc
+    ) {
+    size_t x;
+    size_t y;
+    uint8_t *seq_beg;
+    uint8_t *seq_end;
+    size_t seq_size;
+    struct line *line;
+    uint8_t *restore_seq_beg;
+    uint8_t *restore_seq_end;
+    uint8_t *line_end;
+
+    dbg_assert(diff_end > diff_beg + EMPTY_DIFF);
+    dbg_assert(*diff_beg == DIFF_CHARS_DEL);
+
+    diffchars_unpack(diff_beg, &x, &y);
+    seq_beg = diff_beg + DIFF_CHARS_OFF;
+    seq_end = diff_end - 1;
+    seq_size = seq_end - seq_beg;
+
+    dbg_assert(seq_end > seq_beg);
+
+    line = doc->lines + y;
+    ensure(!is_line_internal(line, doc));
+
+    restore_seq_end = line->extern_line->data + x;
+    restore_seq_beg = restore_seq_end - seq_size;
+    line_end = line->extern_line->data + line->size;
+
+    dbg_assert(restore_seq_beg <= line_end);
+    dbg_assert(restore_seq_end <= line_end);
+
+    memmove(restore_seq_beg, restore_seq_end, line_end - restore_seq_end);
+
+    dbg_assert(line->size >= seq_size);
+    line->size -= seq_size;
+}
+
+void
+diffstack_redo_line_split(uint8_t *diff_beg
+    , uint8_t *diff_end
+    , struct document *doc
+    ) {
+    size_t x;
+    size_t y;
+    size_t n;
+    struct line *fst;
+    struct line *snd;
+
+    dbg_assert(diff_end == diff_beg + SIZE_SPLIT);
+    dbg_assert(*diff_beg == DIFF_LINE_SPLIT);
+
+    memcpy(&x, diff_beg + 1, sizeof(size_t));
+    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
+    memcpy(&n, diff_beg + 1 + 2 * sizeof(size_t), sizeof(size_t));
+
+    ensure(n != 0);
+
+    fst = doc->lines + y;
+    snd = fst + n;
+
+    dbg_assert(snd < doc->lines + doc->loaded_size);
+    dbg_assert(doc->loaded_size + 1 + n <= doc->alloc);
+
+    insert_n_line(x, y, n, &doc);
+}
+
+void
+diffstack_redo_line_merge(uint8_t *diff_beg
+    , uint8_t *diff_end
+    , struct document *doc
+    ) {
+}
+
+void
+diffstack_redo_aggregate(uint8_t *diff_aggr_beg
+    , uint8_t *diff_aggr_end
+    , struct document *doc
+    ) {
+    uint8_t *diff_beg = diff_aggr_beg + SIZE_AGGR;
+    uint8_t *diff_end = diff_aggr_end - SIZE_AGGR;
+    uint8_t *diff_curr;
+    size_t aggr_size;
+    size_t i;
+
+    dbg_assert(diff_aggr_beg[0] == DIFF_AGGREGATE);
+    memcpy(&aggr_size, diff_aggr_beg + 1, sizeof(aggr_size));
+
+    for (i = 0; i < aggr_size; i++) {
+        diff_curr = diffstack_curr_mvback(diff_end);
+        ensure(diff_curr >= diff_beg);
+        switch (*diff_curr) {
+            case DIFF_CHARS_ADD:
+                diffstack_redo_chars_add(diff_curr, diff_end, doc);
+                break;
+            case DIFF_CHARS_DEL:
+                diffstack_redo_chars_del(diff_curr, diff_end, doc);
+                break;
+            case DIFF_LINE_SPLIT:
+                diffstack_redo_line_split(diff_curr, diff_end, doc);
+                break;
+            case DIFF_LINE_MERGE:
+                diffstack_redo_line_merge(diff_curr, diff_end, doc);
+                break;
+            case DIFF_AGGREGATE:
+                diffstack_redo_aggregate(diff_curr, diff_end, doc);
+                break;
+            default:
+                ensure(0);
+        }
+        diff_end = diff_curr;
+    }
+    dbg_assert(diff_curr == diff_beg);
+}
+
 uint8_t *
 diffstack_curr_mvback(uint8_t *curr_end) {
     uint8_t *seq_curr;
@@ -479,14 +639,14 @@ diffstack_curr_mvback(uint8_t *curr_end) {
     size_t i;
 
     switch (curr_end[-1]) {
-        case DIFF_SPLIT_SEP:
-            return curr_end - SIZE_SPLIT;
         case DIFF_CHAR_SEQ:
             seq_curr = curr_end - 2;
             while (*seq_curr != DIFF_CHAR_SEQ) {
                 seq_curr--;
             }
             return seq_curr - (sizeof(size_t) * 2 + 1);
+        case DIFF_SPLIT_SEP:
+            return curr_end - SIZE_SPLIT;
         case DIFF_AGGR_SEQ:
             curr_end -= SIZE_AGGR;
             memcpy(&aggr_size, curr_end, sizeof(aggr_size));
@@ -495,6 +655,35 @@ diffstack_curr_mvback(uint8_t *curr_end) {
                 ensure(curr_end);
             }
             return curr_end - SIZE_AGGR;
+        default:
+            dbg_assert(0);
+            return NULL;
+    }
+}
+
+uint8_t *
+diffstack_curr_mvforw(uint8_t *curr_end) {
+    uint8_t *seq_curr;
+    size_t aggr_size;
+    size_t i;
+
+    switch (*curr_end) {
+        case DIFF_CHARS_ADD:    case DIFF_CHARS_DEL:
+            seq_curr = curr_end + EMPTY_DIFF - 1;
+            while (*seq_curr != DIFF_CHAR_SEQ) {
+                seq_curr++;
+            }
+            return seq_curr + 1;
+        case DIFF_LINE_SPLIT:   case DIFF_LINE_MERGE:
+            return curr_end + SIZE_SPLIT;
+        case DIFF_AGGREGATE:
+            memcpy(&aggr_size, curr_end + 1, sizeof(aggr_size));
+            curr_end += SIZE_AGGR;
+            for (i = 0; i < aggr_size; i++) {
+                curr_end = diffstack_curr_mvforw(curr_end);
+                ensure(curr_end);
+            }
+            return curr_end + SIZE_AGGR;
         default:
             dbg_assert(0);
             return NULL;
@@ -583,6 +772,49 @@ diffstack_undo_aggregate(uint8_t *diff_aggr_beg
     }
     dbg_assert(diff_curr == diff_beg);
 }
+
+int
+diffstack_redo(struct editor *ed) {
+    struct diffstack *ds = ed->diff;
+    struct document *doc = ed->doc;
+    uint8_t *diff_beg = ds->data + ds->curr_checkpoint_beg;
+    uint8_t *diff_end = ds->data + ds->curr_checkpoint_end;
+    uint8_t *last_diff_beg = ds->data + ds->last_checkpoint_beg;
+    uint8_t *last_diff_end = ds->data + ds->last_checkpoint_end;
+
+    if (diff_end == last_diff_end) {
+        dbg_assert(diff_beg == last_diff_beg);
+        return -1;
+    }
+    diff_beg = diff_end;
+    diff_end = diffstack_curr_mvforw(diff_end);
+    ensure(diff_end <= last_diff_end);
+
+    switch (*diff_beg) {
+        case DIFF_CHARS_ADD:
+            diffstack_redo_chars_add(diff_beg, diff_end, doc);
+            break;
+        case DIFF_CHARS_DEL:
+            diffstack_redo_chars_del(diff_beg, diff_end, doc);
+            break;
+        case DIFF_LINE_SPLIT:
+            diffstack_redo_line_split(diff_beg, diff_end, doc);
+            break;
+        case DIFF_LINE_MERGE:
+            diffstack_redo_line_merge(diff_beg, diff_end, doc);
+            break;
+        case DIFF_AGGREGATE:
+            diffstack_redo_aggregate(diff_beg, diff_end, doc);
+            break;
+        default:
+            ensure(0);
+    }
+    ds->curr_checkpoint_beg = diff_beg - ds->data;
+    ds->curr_checkpoint_end = diff_end - ds->data;
+    fill_screen_glyphs(ed, 0);
+    return 0;
+}
+
 
 int
 init_diffstack(struct diffstack **ds, size_t alloc) {
