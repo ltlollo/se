@@ -316,7 +316,7 @@ diffstack_undo_line_merge(uint8_t *diff_beg
     fst = doc->lines + y;
     snd = fst + n;
 
-    dbg_assert(snd < doc->lines + doc->loaded_size);
+    dbg_assert(snd <= doc->lines + doc->loaded_size);
     dbg_assert(doc->loaded_size + 1 + n <= doc->alloc);
 
     insert_n_line(x, y, n, &doc);
@@ -580,7 +580,7 @@ diffstack_redo_line_split(uint8_t *diff_beg
     fst = doc->lines + y;
     snd = fst + n;
 
-    dbg_assert(snd < doc->lines + doc->loaded_size);
+    dbg_assert(snd <= doc->lines + doc->loaded_size);
     dbg_assert(doc->loaded_size + 1 + n <= doc->alloc);
 
     insert_n_line(x, y, n, &doc);

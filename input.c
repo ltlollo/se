@@ -22,7 +22,8 @@ key_move_input(struct editor *ed, int key, int mod) {
         case SDLK_PAGEDOWN:
             ed->selv->focus = ed->selv->data + ed->selv->size - 1;
             load_lines(ed, ed->win->height);
-            delta = min(ed->doc->loaded_size - ed->selv->focus->line
+            dbg_assert(ed->doc->loaded_size > 0);
+            delta = min(ed->doc->loaded_size - ed->selv->focus->line - 1
                 , ed->win->height
             );
             sel_curr = ed->selv->data;
@@ -79,8 +80,7 @@ alt_cursors_down(struct editor *ed, int mod) {
         );
     } else {
         doc = load_lines(ed, 1);
-        if (selv->focus->line >= doc->loaded_size) {
-            dbg_assert(selv->focus->line >= doc->loaded_size);
+        if (selv->focus->line + 1 >= doc->loaded_size) {
             return;
         }
         sel_curr = selv->data;
@@ -226,11 +226,11 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
             line_curr = line_beg;
             utf8 = is_line_utf8(line, doc);
             if (utf8) {
-                for (i = 0; i < sel_curr->glyph_end; i++) {
+                for (i = 0
+                    ; i < sel_curr->glyph_end && line_curr < line_end
+                    ; i++
+                ) {
                     line_curr = next_utf8_char(line_curr);
-                    if (line_curr == line_end) {
-                        break;
-                    }
                 }
                 if (line_curr > line_beg) {
                     line_curr = prev_utf8_char(line_curr);
@@ -285,16 +285,17 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
 void
 add_to_cursor(struct editor *ed
     , struct selection *sel
-    , struct line *line
     , uint8_t *buf
     , size_t bufsz
     , struct diffaggr_info *aggr_info
     ) {
+    struct line *line = ed->doc->lines + sel->line;
     uint8_t *line_beg;
     uint8_t *line_curr;
     size_t pos;
 
-    line = ed->doc->lines + sel->line;
+    dbg_assert(line < ed->doc->lines + ed->doc->loaded_size);
+
     line_beg = begin_line(line, ed->doc);
     line_curr = sync_width_or_null(line, sel->glyph_end, ed->doc);
     if (line_curr) {
@@ -319,7 +320,6 @@ key_insert_chars(struct editor *ed, int key, int mod) {
     struct selection *sel_end = ed->selv->data + ed->selv->size;
     struct selection *sel_fin = sel_end - 1;
     struct diffaggr_info aggr_info;
-    struct line *line;
     uint8_t buf[4];
     size_t bufsz;
 
@@ -333,8 +333,7 @@ key_insert_chars(struct editor *ed, int key, int mod) {
         if (sel->line != ed->doc->loaded_size
             && sel->glyph_beg == sel->glyph_end
         ) {
-            line = ed->doc->lines + sel->line;
-            add_to_cursor(ed, sel, line, buf, bufsz, &aggr_info);
+            add_to_cursor(ed, sel, buf, bufsz, &aggr_info);
         } else {
             diffstack_aggregate_begin(&ed->diff, &aggr_info);
             if (sel->line == sel->glyph_end) {
@@ -343,8 +342,7 @@ key_insert_chars(struct editor *ed, int key, int mod) {
             } else if (sel->glyph_beg != sel->glyph_end) {
                 delete_selection(ed, sel, &aggr_info);
             }
-            line = ed->doc->lines + sel->line;
-            add_to_cursor(ed, sel, line, buf, bufsz, &aggr_info);
+            add_to_cursor(ed, sel, buf, bufsz, &aggr_info);
             diffstack_aggregate_end(&ed->diff, &aggr_info);
         }
     } else {
@@ -359,8 +357,7 @@ key_insert_chars(struct editor *ed, int key, int mod) {
             }
         }
         for (sel = ed->selv->data; sel != sel_end; sel++) {
-            line = ed->doc->lines + sel->line;
-            add_to_cursor(ed, sel, line, buf, bufsz, &aggr_info);
+            add_to_cursor(ed, sel, buf, bufsz, &aggr_info);
         }
         diffstack_aggregate_end(&ed->diff, &aggr_info);
     }

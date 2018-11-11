@@ -17,8 +17,8 @@ struct colored_keyword {
     struct colored_span span;
 };
 
-#define cxkeyword(color, str) {                                     \
-    .data = str, { .color_pos = color, .size = sizeof(str) - 1 },   \
+#define KEYWORD(color, str) {\
+    .data = str, { .color_pos = color, .size = sizeof(str) - 1 },\
 }
 
 #endif // LEX_H

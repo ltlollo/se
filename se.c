@@ -677,6 +677,9 @@ int
 is_fully_loaded(struct document *doc) {
     struct line *last_line = doc->lines + doc->loaded_size;
     uint8_t *doc_end = doc->file.data + doc->file.size;
+    if (doc->loaded_size == 0) {
+        return 0;
+    }
     return last_line->intern_line == doc_end;
 }
 
@@ -712,8 +715,14 @@ load_lines(struct editor *ed, size_t nlines) {
         && trampoline->intern_line >= doc_beg
         && trampoline->intern_line <= doc_end
     );
-
-    if (res->file.size == 0) {
+    if (res->file.size == 0 && res->loaded_size == 0) {
+        res = resize_document_by(1, &ed->doc);
+        ensure(res);
+        res->lines->ptr = NULL;
+        init_extern_line(&res->lines[0], NULL, 0, UTF8_CLEAN, res);
+        res->loaded_size++;
+        trampoline = res->lines + 1;
+        trampoline->ptr = doc_end;
         return res;
     }
     if (trampoline->ptr == doc_end) {
@@ -1407,6 +1416,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
     int key;
     int mod;
     SDL_Event event;
+    struct line *trampoline;
 
     window_render(ed->win, gl_id);
 
@@ -1418,14 +1428,14 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
                 if (mod & KMOD_LCTRL) {
                     switch (key) {
                         case 'u':
-                        diffstack_undo(ed);
-                        break;
+                            diffstack_undo(ed);
+                            break;
                         case 'r':
-                        diffstack_redo(ed);
-                        break;
+                            diffstack_redo(ed);
+                            break;
                         case 'q':
-                        exit(0);
-                        break;
+                            exit(0);
+                            break;
                     }
                 }
                 switch (key) {
@@ -1459,10 +1469,23 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
                 }
                 break;
         }
+        trampoline = ed->doc->lines + ed->doc->loaded_size;
+        dbg_assert(trampoline->ptr
+            <= ed->doc->file.data + ed->doc->file.size
+        );
+        cursors_reposition(ed->selv, ed->doc);
         screen_reposition(ed);
         fill_screen_colors(ed, 0);
         gl_buffers_upload(ed->win);
         window_render(ed->win, gl_id);
+    }
+}
+
+void
+cursors_reposition(struct selectarr *selv, struct document *doc) {
+    if (selv->size == 1) {
+        selv->data->line = min(selv->data->line, doc->loaded_size - 1);
+        return;
     }
 }
 

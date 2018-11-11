@@ -64,7 +64,7 @@ keyword_match(uint8_t *curr, uint8_t *end, char *str, intptr_t size) {
     if (end - curr < size) {
         return 0;
     }
-    if (end - curr + size > 0 && is_tok(curr[size])) {
+    if (end - curr > size && is_tok(curr[size])) {
         return 0;
     }
     return memcmp(curr, str, size) == 0;

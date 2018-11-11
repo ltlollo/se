@@ -47,3 +47,10 @@ rmemcpy(void *restrict dst, void *restrict src, size_t size) {
         *beg++ = *cpi--;
     }
 }
+
+void
+bug(void) {
+#ifndef GDBBREAK
+    __asm__("int3\n\t");
+#endif
+}
