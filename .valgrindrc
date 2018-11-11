@@ -1,0 +1,4 @@
+--suppressions=.supp
+--vgdb=yes
+--vgdb-error=0
+--track-origins=yes

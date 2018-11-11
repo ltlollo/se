@@ -1,0 +1,48 @@
+{
+   ignore_unversioned_libs
+   Memcheck:Leak
+   ...
+   obj:*/lib*/lib*.so
+}
+{
+   ignore_versioned_libs
+   Memcheck:Leak
+   ...
+   obj:*/lib*/lib*.so.*
+}
+{
+   ignore_unversioned_libs
+   Memcheck:Cond
+   ...
+   obj:*/lib*/lib*.so
+}
+{
+   ignore_versioned_libs
+   Memcheck:Cond
+   ...
+   obj:*/lib*/lib*.so.*
+}
+{
+   ignore_unversioned_libs
+   Memcheck:Addr4
+   ...
+   obj:*/lib*/lib*.so
+}
+{
+   ignore_versioned_libs
+   Memcheck:Addr4
+   ...
+   obj:*/lib*/lib*.so.*
+}
+{
+   ignore_unversioned_libs
+   Memcheck:Addr8
+   ...
+   obj:*/lib*/lib*.so
+}
+{
+   ignore_versioned_libs
+   Memcheck:Addr8
+   ...
+   obj:*/lib*/lib*.so.*
+}
