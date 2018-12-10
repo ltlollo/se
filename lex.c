@@ -7,6 +7,17 @@
 #include "kcol.def.h"
 
 int
+fmemcmp(char *restrict f, char *restrict s, size_t size) {
+    char *end = f + size;
+    while (f != end) {
+        if (*f++ != *s++) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+int
 is_alpha(uint32_t c) {
     if (c >= 'a' && c <= 'z') {
         return 1;
@@ -67,7 +78,7 @@ keyword_match(uint8_t *curr, uint8_t *end, char *str, intptr_t size) {
     if (end - curr > size && is_tok(curr[size])) {
         return 0;
     }
-    return memcmp(curr, str, size) == 0;
+    return fmemcmp(curr, str, size) == 0;
 }
 
 uint8_t *
@@ -126,7 +137,7 @@ color_span(uint8_t *beg, uint8_t *curr, uint8_t *end) {
     if (*curr <= 0x20 || *curr > 0x7e) {
         return res;
     }
-    if (end - curr >= 2 && memcmp(curr, "//", 2) == 0) {
+    if (end - curr >= 2 && fmemcmp(curr, "//", 2) == 0) {
         res.size = end - curr;
         res.color_pos = 4;
         return res;

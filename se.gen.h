@@ -64,6 +64,7 @@ void insert_n_line(size_t, size_t, size_t, struct document **);
 void render_loop(struct editor *, struct gl_data *);
 void cursors_reposition(struct selectarr *, struct document *);
 int init_editor(struct editor *, const char *);
+int fmemcmp(char *restrict, char *restrict, size_t);
 int is_alpha(uint32_t);
 int is_char(uint32_t);
 int is_digit(uint32_t);

@@ -154,11 +154,11 @@ move_cursors_right(struct selectarr *selv, int mod, struct document *doc) {
             line_end = end_line(line, doc);
             utf8 = is_line_utf8(line, doc);
             if (utf8) {
-                for (i = 0; i < sel_curr->glyph_end; i++) {
+                for (i = 0
+                    ; i < sel_curr->glyph_end && line_curr != line_end
+                    ; i++
+                    ) {
                     line_curr = next_utf8_char(line_curr);
-                    if (line_curr == line_end) {
-                        break;
-                    }
                 }
                 if (line_curr < line_end && utf8) {
                     glyph = iter_glyph_from_utf8(&line_curr);
