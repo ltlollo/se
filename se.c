@@ -752,6 +752,7 @@ load_lines(struct editor *ed, size_t nlines) {
                 , res->alloc
                 , sizeof(struct line)
         ));
+        res = ed->doc;
     }
     return res;
 }
