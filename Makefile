@@ -36,13 +36,13 @@ rfp_font: rfp
 cfp:
 	$(CC) -D_GNU_SOURCE  $(RELEASE_CFLAGS) \
 		cfp.c util.c fio.c comp.c $(LDFLAGS) -o ext/cfp
-cfp_font: cfp
+cfp_font: cfp rfp_font
 	$(SH) ./ext/cfp ext/unifont.rfp ext/unifont.cfp
 
 ofont: cfp_font
 	ld -r -b binary ext/unifont.cfp -o ext/unifont.o
 
 clean:
-	$(RM) se ext/rfp ext/cfp ext/umap ext/unifont.o
+	$(RM) se ext/rfp ext/cfp ext/umap ext/unifont.cfp unifont.rfp ext/unifont.o
 
 .PHONY: clean
