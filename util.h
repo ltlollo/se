@@ -7,6 +7,7 @@
 #include <stddef.h>
 #include <err.h>
 #include <stdio.h>
+#include "ilog.h"
 
 
 #define __pack       __attribute__((packed))
@@ -45,12 +46,20 @@
 #define ptr_align_bits(p, b)  (ptr_align_bound(p, 1 << (b)))
 
 // this will change to a dump and crash like behavior
-#define ensure(cond) xensure(cond)
+#define ensure(cond)\
+    do {\
+        if (__unlikey((cond) == 0)) {\
+            ilog_dump();\
+        }\
+        xensure(cond);\
+    } while (0)
 
 #ifndef NDEBUG
+#   define dbg(x) (x)
 #   define dbg_assert(cond) ensure(cond)
 #   define RUNTIME_INSTR    (1)
 #else
+#   define dbg(x)
 #   define dbg_assert(cond) ((void)(cond))
 #   define RUNTIME_INSTR    (0)
 #endif

@@ -31,6 +31,7 @@ diffstack_aggregate_begin(struct diffstack **diffptr
     diff->curr_checkpoint_beg = diff->curr_checkpoint_end;
     diff->curr_checkpoint_end = diff->curr_checkpoint_beg + SIZE_AGGR;
     info->aggregate_beg = diff->curr_checkpoint_beg;
+    diff->data[info->aggregate_beg] = DIFF_AGGREGATE;
 
     return diff;
 }
@@ -50,7 +51,8 @@ diffstack_aggregate_end(struct diffstack **diffptr
     diff->curr_checkpoint_beg = info->aggregate_beg;
     diff->curr_checkpoint_end = diff->curr_checkpoint_end + SIZE_AGGR;
 
-    diff->data[info->aggregate_beg] = DIFF_AGGREGATE;
+    ensure(diff->data[info->aggregate_beg] == DIFF_AGGREGATE);
+
     memcpy(diff->data + info->aggregate_beg + 1
         , &info->size
         , sizeof(info->size)
@@ -734,6 +736,206 @@ diffstack_curr_mvforw(uint8_t *curr_end) {
     }
 }
 
+uint8_t *
+diffaggr_first_simple(uint8_t *diff_beg) {
+    size_t aggr_size;
+
+    ensure(*diff_beg == DIFF_AGGREGATE);
+    memcpy(&aggr_size, diff_beg + 1, sizeof(aggr_size));
+
+    diff_beg = diff_beg + SIZE_AGGR;
+    for (size_t i = 0; i < aggr_size; i++) {
+        switch (*diff_beg) {
+            case DIFF_CHARS_ADD: case DIFF_CHARS_DEL: case DIFF_LINE_SPLIT:
+            case DIFF_LINE_MERGE:
+                return diff_beg;
+            case DIFF_AGGREGATE:
+                return diffaggr_first_simple(diff_beg);
+            default:
+                ensure(0);
+        }
+    }
+    return NULL;
+}
+
+uint8_t *
+diffaggr_last_simple(uint8_t *diff_end) {
+    size_t aggr_size;
+
+    ensure(diff_end[-1] == DIFF_AGGR_SEQ);
+    diff_end -= SIZE_AGGR;
+    memcpy(&aggr_size, diff_end, sizeof(aggr_size));
+
+    for (size_t i = 0; i < aggr_size; i++) {
+        switch (diff_end[-1]) {
+            case DIFF_CHAR_SEQ: case DIFF_SPLIT_SEP:
+                return diffstack_curr_mvback(diff_end);
+            case DIFF_AGGR_SEQ:
+                return diffaggr_last_simple(diff_end);
+            default:
+                ensure(0);
+        }
+    }
+    return NULL;
+}
+
+int
+reposition_cursor_undo(struct editor *ed
+    , uint8_t *diff_beg
+    , uint8_t *diff_end
+) {
+    struct selectarr *selv = ed->selv;
+    size_t x;
+    size_t y;
+
+    if (diff_beg == diff_end) {
+        return -1;
+    }
+    switch (*diff_beg) {
+        case DIFF_AGGREGATE:
+            diff_beg = diffaggr_first_simple(diff_beg);
+            if (diff_beg == NULL)
+                break;
+            /* fallthrough */
+        case DIFF_CHARS_ADD:
+        case DIFF_CHARS_DEL:
+        case DIFF_LINE_SPLIT:
+            diffchars_unpack(diff_beg, &x, &y);
+            selv->size = 1;
+            selv->focus = selv->data;
+            selv->focus->line = y;
+            selv->focus->glyph_beg = x;
+            selv->focus->glyph_end = x;
+            break;
+        case DIFF_LINE_MERGE:
+            diffchars_unpack(diff_beg, &x, &y);
+            selv->size = 1;
+            selv->focus = selv->data;
+            selv->focus->line = y + 1;
+            selv->focus->glyph_beg = 0;
+            selv->focus->glyph_end = 0;
+            break;
+
+    }
+    return 0;
+}
+
+void
+diff_show(uint8_t *diff_beg, uint8_t *diff_end, size_t indent) {
+    size_t aggr_size;
+    size_t x;
+    size_t y;
+
+    for (size_t i = 0; i < indent; i++) {
+        fprintf(stderr, "  ");
+    }
+
+    switch (*diff_beg) {
+        case DIFF_CHARS_ADD:
+            diffchars_unpack(diff_beg, &x, &y);
+            fprintf(stderr, "{ADD, x: %5.lu, y: %5.lu}\n", x, y);
+            break;
+        case DIFF_CHARS_DEL:
+            diffchars_unpack(diff_beg, &x, &y);
+            fprintf(stderr, "{DEL, x: %5.lu, y: %5.lu}\n", x, y);
+            break;
+        case DIFF_LINE_SPLIT:
+            diffchars_unpack(diff_beg, &x, &y);
+            fprintf(stderr, "{SPL, x: %5.lu, y: %5.lu}\n", x, y);
+            break;
+        case DIFF_LINE_MERGE:
+            diffchars_unpack(diff_beg, &x, &y);
+            fprintf(stderr, "{MRG, x: %5.lu, y: %5.lu}\n", x, y);
+            break;
+        case DIFF_AGGREGATE:
+            memcpy(&aggr_size, diff_beg + 1, sizeof(aggr_size));
+            diff_beg = diff_beg + SIZE_AGGR;
+
+            for (size_t i = 0; i < aggr_size; i++) {
+                diff_show(diff_beg, diff_end, indent + 1);
+                diff_beg = diffstack_curr_mvforw(diff_beg);
+            }
+    }
+}
+
+void
+diffstack_show(const char *msg, struct diffstack *ds) {
+    uint8_t *diff_beg = ds->data + 0;
+    uint8_t *diff_end = ds->data + ds->curr_checkpoint_end;
+
+    fprintf(stderr, "=== %s ===\n", msg);
+
+    while (diff_beg != diff_end) {
+        ensure(diff_beg < diff_end);
+        diff_show(diff_beg, diff_end, 0);
+
+        diff_beg = diffstack_curr_mvforw(diff_beg);
+    }
+}
+
+int
+reposition_cursor_redo(struct editor *ed
+    , uint8_t *diff_beg
+    , uint8_t *diff_end
+) {
+    struct selectarr *selv = ed->selv;
+    uint8_t *seq_beg = diff_beg + DIFF_CHARS_OFF;
+    uint8_t *seq_end = diff_end - 1;
+    size_t diff_size = seq_end - seq_beg;
+    size_t x;
+    size_t y;
+
+    if (diff_beg == diff_end) {
+        return -1;
+    }
+    if (*diff_beg == DIFF_AGGREGATE) {
+        diff_beg = diffaggr_last_simple(diff_end);
+        if (diff_beg == NULL) {
+            return -1;
+        }
+        diff_end = diffstack_curr_mvforw(diff_beg);
+        seq_beg = diff_beg + DIFF_CHARS_OFF;
+        seq_end = diff_end - 1;
+        diff_size = seq_end - seq_beg;
+    }
+    switch (*diff_beg) {
+        case DIFF_CHARS_ADD:
+            diffchars_unpack(diff_beg, &x, &y);
+            selv->size = 1;
+            selv->focus = selv->data;
+            selv->focus->line = y;
+            selv->focus->glyph_beg = x + diff_size;
+            selv->focus->glyph_end = x + diff_size;
+            break;
+        case DIFF_CHARS_DEL:
+            diffchars_unpack(diff_beg, &x, &y);
+            selv->size = 1;
+            selv->focus = selv->data;
+            selv->focus->line = y;
+            selv->focus->glyph_beg = x - diff_size;
+            selv->focus->glyph_end = x - diff_size;
+            break;
+        case DIFF_LINE_SPLIT:
+            diffchars_unpack(diff_beg, &x, &y);
+            selv->size = 1;
+            selv->focus = selv->data;
+            selv->focus->line = y + 1;
+            selv->focus->glyph_beg = 0;
+            selv->focus->glyph_end = 0;
+            break;
+        case DIFF_LINE_MERGE:
+            diffchars_unpack(diff_beg, &x, &y);
+            selv->size = 1;
+            selv->focus = selv->data;
+            selv->focus->line = y;
+            selv->focus->glyph_beg = x;
+            selv->focus->glyph_end = x;
+            break;
+    }
+    // TODO add assert focus in bounds
+    return 0;
+}
+
 int
 diffstack_undo(struct editor *ed) {
     struct diffstack *ds = ed->diff;
@@ -741,9 +943,13 @@ diffstack_undo(struct editor *ed) {
     uint8_t *diff_beg = ds->data + ds->curr_checkpoint_beg;
     uint8_t *diff_end = ds->data + ds->curr_checkpoint_end;
 
+    dbg(diffstack_show("undo before", ed->diff));
+
     if (diff_beg == diff_end) {
         return -1;
     }
+    reposition_cursor_undo(ed, diff_beg, diff_end);
+
     switch (*diff_beg) {
         case DIFF_CHARS_ADD:
             diffstack_undo_chars_add(diff_beg, diff_end, doc);
@@ -773,6 +979,8 @@ diffstack_undo(struct editor *ed) {
         ds->curr_checkpoint_end = 0;
     }
     fill_screen_glyphs(ed, 0);
+
+    dbg(diffstack_show("undo after", ed->diff));
     return 0;
 }
 
@@ -826,6 +1034,8 @@ diffstack_redo(struct editor *ed) {
     uint8_t *last_diff_beg = ds->data + ds->last_checkpoint_beg;
     uint8_t *last_diff_end = ds->data + ds->last_checkpoint_end;
 
+    diffstack_show("redo before", ed->diff);
+
     if (diff_end == last_diff_end) {
         dbg_assert(diff_beg == last_diff_beg);
         return -1;
@@ -833,6 +1043,8 @@ diffstack_redo(struct editor *ed) {
     diff_beg = diff_end;
     diff_end = diffstack_curr_mvforw(diff_end);
     ensure(diff_end <= last_diff_end);
+
+    reposition_cursor_redo(ed, diff_beg, diff_end);
 
     switch (*diff_beg) {
         case DIFF_CHARS_ADD:
@@ -856,6 +1068,8 @@ diffstack_redo(struct editor *ed) {
     ds->curr_checkpoint_beg = diff_beg - ds->data;
     ds->curr_checkpoint_end = diff_end - ds->data;
     fill_screen_glyphs(ed, 0);
+
+    diffstack_show("redo after", ed->diff);
     return 0;
 }
 

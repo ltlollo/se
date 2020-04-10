@@ -23,6 +23,7 @@
 #include "lex.h"
 #include "comp.h"
 #include "se.h"
+#include "ilog.h"
 
 #include "se.gen.h"
 #include "umap.gen.h"
@@ -35,6 +36,7 @@
 #define V_GLYPH_PX  (16)
 
 extern char *__progname;
+extern struct ilog *ilogptr;
 
 static struct color *color_selection = colors_table + 7;
 static struct color *color_cursor    = colors_table + 8;
@@ -1422,6 +1424,8 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
     window_render(ed->win, gl_id);
 
     while (SDL_WaitEvent(&event)) {
+        dbg(ilog_push(&event));
+
         key = event.key.keysym.sym;
         mod = event.key.keysym.mod;
         switch(event.type) {
