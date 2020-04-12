@@ -48,7 +48,7 @@ clean:
 	$(RM) se ext/rfp ext/cfp ext/umap ext/unifont.cfp unifont.rfp ext/unifont.o
 
 perf:
-	#gprof2dot --format=callgrind --output=out.dot callgrind.out.26855
+	#gprof2dot --format=callgrind --output=out.dot callgrind.out
 	#gprof2dot --format=perf --output=out.dot perf.data
 
 .PHONY: clean
