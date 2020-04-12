@@ -1434,7 +1434,8 @@ insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
 void
 win_dmg_from_lineno(struct window *win, size_t lineno) {
     // lineno is absolute line, so 0 will invalidate all the srollback
-    // win_dmg_from_lineno(ed->doc->line_off) does the same thing
+    // win_dmg_from_lineno(ed->doc->line_off) does the same thing since that's
+    // where the scrollback buffer begins storing lines from
     win->dmg_scrollback_beg = lineno;
     win->dmg_scrollback_end = ~0;
 }
@@ -1477,6 +1478,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
                             diffstack_redo(ed);
                             break;
                         case 'q':
+                            SDL_Quit();
                             exit(0);
                             break;
                     }
@@ -1549,9 +1551,7 @@ init_editor(struct editor *ed, const char *fname) {
             ilog_enable = 1;
         }
     }
-    struct sigaction sa = {
-        .sa_handler = ilog_dump_sig,
-    };
+    struct sigaction sa = { .sa_handler = ilog_dump_sig, };
     sigaction(SIGUSR1, &sa, NULL);
 
     return 0;

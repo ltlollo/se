@@ -19,6 +19,10 @@ release: se.gen.h umap.gen.h $(SRC) util.c fio.c comp.c ilog.c ext/unifont.o
 	$(CC) -DNDEBUG -DLINK_FONT -D_GNU_SOURCE $(RELEASE_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ilog.c ext/unifont.o $(LDFLAGS) -o se
 
+asm/%.s: %.c
+	mkdir -p asm
+	$(CC) -fverbose-asm -DNDEBUG -DLINK_FONT -D_GNU_SOURCE $(RELEASE_CFLAGS) $*.c -S -o $@
+
 ext/umap: umap.c util.c fio.c
 	$(CC) -D_GNU_SOURCE  $(RELEASE_CFLAGS) \
 		umap.c util.c fio.c $(LDFLAGS) -o ext/umap
@@ -42,5 +46,9 @@ ext/unifont.o: ext/unifont.cfp
 
 clean:
 	$(RM) se ext/rfp ext/cfp ext/umap ext/unifont.cfp unifont.rfp ext/unifont.o
+
+perf:
+	#gprof2dot --format=callgrind --output=out.dot callgrind.out.26855
+	#gprof2dot --format=perf --output=out.dot perf.data
 
 .PHONY: clean
