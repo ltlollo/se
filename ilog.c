@@ -7,6 +7,7 @@
 #define ILOG_BASE "se.ilog.dump"
 
 struct ilog *ilogptr;
+int ilog_enable;
 
 __attribute__((constructor)) void
 ilog_init(void) {
@@ -15,6 +16,8 @@ ilog_init(void) {
     ilogptr = malloc(sizeof(struct ilog) + sizeof(struct event) * alloc);
     ilogptr->size = 0;
     ilogptr->alloc = alloc;
+    ilog_enable = 0;
+
     xensure(ilogptr);
 }
 
@@ -65,9 +68,9 @@ ilog_push(SDL_Event *ev) {
     ilogptr->data[ilogptr->size++] = e;
 }
 
-#ifndef NDEBUG
 __attribute__((destructor)) void
 ilog_dump_fini(void) {
-    ilog_dump_file(ILOG_BASE);
+    if (ilog_enable) {
+        ilog_dump_file(ILOG_BASE);
+    }
 }
-#endif

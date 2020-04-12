@@ -37,6 +37,7 @@
 
 extern char *__progname;
 extern struct ilog *ilogptr;
+extern int ilog_enable;
 
 static struct color *color_selection = colors_table + 7;
 static struct color *color_cursor    = colors_table + 8;
@@ -74,6 +75,7 @@ void main() {                                   \n\
 
 #include "diff.c"
 #include "input.c"
+#include "conf.c"
 
 uint32_t
 first_glyph(uint8_t *beg, uint8_t *end) {
@@ -1483,6 +1485,10 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
         fill_screen_colors(ed, 0);
         gl_buffers_upload(ed->win);
         window_render(ed->win, gl_id);
+
+        dbg(warnx("doc: line_off: %lu", ed->doc->line_off));
+        dbg(warnx("doc: glyph_off: %lu", ed->doc->glyph_off));
+        dbg(warnx("win: scrollback_pos: %u", ed->win->scrollback_pos));
     }
 }
 
@@ -1496,12 +1502,20 @@ cursors_reposition(struct selectarr *selv, struct document *doc) {
 
 int
 init_editor(struct editor *ed, const char *fname) {
-
+    init_conf(&ed->conf);
     xensure(init_diffstack(&ed->diff, 0x1000) == 0);
     xensure(init_doc(fname, &ed->doc) == 0);
     xensure(init_sel(0x10, &ed->selv) == 0);
     ed->win = malloc(sizeof(struct window));
     ensure(ed->win);
+
+    struct conf_data *dump_on_exit = conf_find(&ed->conf, "dump_on_exit");
+    if (dump_on_exit) {
+        if (strcmp(dump_on_exit->val, "1") == 0) {
+            ilog_enable = 1;
+        }
+    }
+
     return 0;
 }
 

@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include <string.h>
 
+
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -20,8 +21,9 @@ load_file(const char *fname, struct mmap_file *file) {
     int fd = open(fname, O_RDONLY);
     off_t length;
 
-    xensure_errno(fd != -1);
-
+    if (fd == -1) {
+        return -1;
+    }
     length = lseek(fd, 0, SEEK_END);
     xensure_errno(length != -1);
     xensure_errno(lseek(fd, 0, SEEK_SET) != -1);
@@ -51,7 +53,7 @@ load_bitmap(const char *fname, struct bitmap_data *bmp) {
     struct dib_header *dh;
     uint32_t bytes_per_row;
 
-    xensure(load_file(fname, &file) == 0);
+    xensure_errno(load_file(fname, &file) == 0);
     
     bh = file.data;
     xensure(memcmp(&bh->signature, "BM", 2) == 0);

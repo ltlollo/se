@@ -5,6 +5,7 @@
 #define SE_H
 
 #include <SDL2/SDL.h>
+#include <linux/limits.h>
 
 #define EMPTY_DIFF     (3 + sizeof(size_t) * 2)
 #define SIZE_SPLIT     (2 + sizeof(size_t) * 3)
@@ -12,6 +13,9 @@
 #define DIFF_CHARS_OFF (2 + sizeof(size_t) * 2)
 #define DIFF_ADD_EOD   (~0ull)
 
+#define KEY_LEN (0x20)
+#define VAL_LEN (0x60)
+#define CONF_LEN (25)
 
 typedef int(*class_fn)(uint32_t);
 
@@ -152,11 +156,25 @@ enum DIFF_DELIM {
     DIFF_SPLIT_SEP = '\1',
 };
 
+struct conf_data {
+    char key[KEY_LEN];
+    char val[VAL_LEN];
+};
+
+struct conf {
+    char path[PATH_MAX];
+    struct mmap_file file;
+    size_t size;
+    struct conf_data data[CONF_LEN];
+};
+
+
 struct editor {
     struct window *win;
     struct document *doc;
     struct diffstack *diff;
     struct selectarr *selv;
+    struct conf conf;
 };
 
 #endif // SE_H
