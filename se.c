@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <signal.h>
 
 #include "util.h"
 #include "fio.h"
@@ -132,6 +133,9 @@ resize_display_matrix(struct editor *ed
     ed->win = gen_display_matrix(&ed->win, win_width, win_height);
     ensure(ed->win);
 
+    ed->win->dmg_scrollback_beg = 0;
+    ed->win->dmg_scrollback_end = ~0;
+
     ed->win->scrollback_pos = 0;
     ed->doc->line_off = 0;
     ed->doc->glyph_off = 0;
@@ -220,6 +224,8 @@ screen_reposition(struct editor *ed) {
             move_scrollback(ed, MV_VERT_DOWN, win_lines);
         }
     } else {
+        win_dmg_from_lineno(ed->win, 0);
+
         if (doc->glyph_off > cursor_glyph) {
             while (doc->glyph_off > cursor_glyph) {
                 doc->glyph_off -= win->width / 2;
@@ -236,7 +242,6 @@ screen_reposition(struct editor *ed) {
             win->scrollback_pos = 0;
             doc->line_off = cursor_line;
         }
-        fill_screen_glyphs(ed, 0);
     }
 }
 
@@ -1149,6 +1154,11 @@ fill_screen_glyphs(struct editor *ed, unsigned i) {
         win_lines = doc->loaded_size - doc->line_off;
     }
     for (; i < min(win_lines, win->scrollback_size); i++) {
+        if (doc->line_off + i < ed->win->dmg_scrollback_beg
+            || doc->line_off + i > ed->win->dmg_scrollback_end
+        ) {
+            continue;
+        }
         fill_line_glyphs(i
             , is_line_utf8(line_beg + i, doc)
             , begin_line(line_beg + i, doc)
@@ -1188,6 +1198,11 @@ fill_screen_colors(struct editor *ed, unsigned line) {
     dbg_assert(!(win_lines < win->scrollback_size && !is_fully_loaded(doc)));
 
     for (i = line; i < min(win_lines, win->scrollback_size); i++) {
+        if (doc->line_off + i < ed->win->dmg_scrollback_beg
+            || doc->line_off + i > ed->win->dmg_scrollback_end
+        ) {
+            continue;
+        }
         fill_line_colors(i
             , is_line_utf8(line_beg + i, doc)
             , begin_line(line_beg + i, doc)
@@ -1266,7 +1281,7 @@ move_scrollback_up(struct editor *ed) {
         , win->glyph_mesh
         , size * sizeof(struct quad_coord)
     );
-    fill_screen_glyphs(ed, 0);
+    win_dmg_from_lineno(ed->win, 0);
 }
 
 void
@@ -1296,7 +1311,7 @@ move_scrollback_down(struct editor *ed) {
         , win->glyph_mesh + size
         , size * sizeof(struct quad_coord)
     );
-    fill_screen_glyphs(ed, win->height);
+    win_dmg_from_lineno(ed->win, 0);
 }
 
 void
@@ -1417,6 +1432,25 @@ insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
 }
 
 void
+win_dmg_from_lineno(struct window *win, size_t lineno) {
+    // lineno is absolute line, so 0 will invalidate all the srollback
+    // win_dmg_from_lineno(ed->doc->line_off) does the same thing
+    win->dmg_scrollback_beg = lineno;
+    win->dmg_scrollback_end = ~0;
+}
+
+void
+win_dmg_calc(struct window *win, struct selectarr *selv) {
+    win->dmg_scrollback_beg = ~0;
+    win->dmg_scrollback_end =  0;
+
+    for (struct selection *s = selv->data; s < selv->data + selv->size; s++) {
+        win->dmg_scrollback_beg = min(s->line, win->dmg_scrollback_beg);
+        win->dmg_scrollback_end = max(s->line, win->dmg_scrollback_end);
+    }
+}
+
+void
 render_loop(struct editor *ed, struct gl_data *gl_id) {
     int key;
     int mod;
@@ -1427,6 +1461,8 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
 
     while (SDL_WaitEvent(&event)) {
         dbg(ilog_push(&event));
+
+        win_dmg_calc(ed->win, ed->selv);
 
         key = event.key.keysym.sym;
         mod = event.key.keysym.mod;
@@ -1444,6 +1480,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
                             exit(0);
                             break;
                     }
+
                 }
                 switch (key) {
                     case SDLK_LCTRL:    case SDLK_RCTRL:    case SDLK_LSHIFT:
@@ -1482,13 +1519,10 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
         );
         cursors_reposition(ed->selv, ed->doc);
         screen_reposition(ed);
+        fill_screen_glyphs(ed, 0);
         fill_screen_colors(ed, 0);
         gl_buffers_upload(ed->win);
         window_render(ed->win, gl_id);
-
-        dbg(warnx("doc: line_off: %lu", ed->doc->line_off));
-        dbg(warnx("doc: glyph_off: %lu", ed->doc->glyph_off));
-        dbg(warnx("win: scrollback_pos: %u", ed->win->scrollback_pos));
     }
 }
 
@@ -1515,6 +1549,10 @@ init_editor(struct editor *ed, const char *fname) {
             ilog_enable = 1;
         }
     }
+    struct sigaction sa = {
+        .sa_handler = ilog_dump_sig,
+    };
+    sigaction(SIGUSR1, &sa, NULL);
 
     return 0;
 }

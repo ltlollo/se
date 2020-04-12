@@ -40,10 +40,20 @@ ilog_dump(void) {
     }
     size_t uuid;
     char fname[sizeof(ILOG_BASE) + 16 + 1];
-    getrandom(&uuid, sizeof(uuid), 0);
+    ssize_t ret = getrandom(&uuid, sizeof(uuid), 0);
+    uuid = ret + uuid;
     sprintf(fname, "%s%016lx", ILOG_BASE, uuid);
 
     ilog_dump_file(fname);
+
+    atomic_store(&lock, 0);
+}
+
+void
+ilog_dump_sig(int sig) {
+    (void)sig;
+
+    ilog_dump();
 }
 
 void

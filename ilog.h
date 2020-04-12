@@ -15,6 +15,7 @@ struct ilog {
 };
 
 void ilog_dump(void);
+void ilog_dump_sig(int);
 void ilog_push(SDL_Event *);
 
 #endif // ILOG_H

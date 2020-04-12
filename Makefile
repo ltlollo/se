@@ -5,20 +5,19 @@ RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 -DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
 SRC				:= se.c lex.c diff.c input.c
 
-se: tags se.gen.h umap.gen.h $(SRC) util.c fio.c comp.c ilog.c ./ext/unifont.o
-
+se: tags se.gen.h umap.gen.h $(SRC) util.c fio.c comp.c ilog.c ext/unifont.o
 	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o $(LDFLAGS) -o se
 
-se.gen.h:
+se.gen.h: $(SRC)
 	@$(SH) ./ext/gen_headers $(SRC) > se.gen.h
 
 tags: *.c *.h
 	@ctags *.c *.h
 
-release: umap.gen.h se.gen.h $(SRC) util.c fio.c comp.c ilog.c ext/unifont.o
+release: se.gen.h umap.gen.h $(SRC) util.c fio.c comp.c ilog.c ext/unifont.o
 	$(CC) -DNDEBUG -DLINK_FONT -D_GNU_SOURCE $(RELEASE_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c ext/unifont.o $(LDFLAGS) -o se
+		se.c lex.c util.c fio.c comp.c ilog.c ext/unifont.o $(LDFLAGS) -o se
 
 ext/umap: umap.c util.c fio.c
 	$(CC) -D_GNU_SOURCE  $(RELEASE_CFLAGS) \

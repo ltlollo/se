@@ -61,6 +61,8 @@ struct extern_line * convert_line_external(struct line *, struct document *);
 struct document * insert_empty_lines(size_t, size_t, struct document **);
 void copy_extern_line(struct line *, uint8_t *, size_t, struct document *);
 void insert_n_line(size_t, size_t, size_t, struct document **);
+void win_dmg_from_lineno(struct window *, size_t);
+void win_dmg_calc(struct window *, struct selectarr *);
 void render_loop(struct editor *, struct gl_data *);
 void cursors_reposition(struct selectarr *, struct document *);
 int init_editor(struct editor *, const char *);

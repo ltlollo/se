@@ -361,7 +361,6 @@ key_insert_chars(struct editor *ed, int key, int mod) {
         }
         diffstack_aggregate_end(&ed->diff, &aggr_info);
     }
-    fill_screen_glyphs(ed, 0);
 };
 
 void
@@ -527,7 +526,9 @@ key_backspace(struct editor *ed) {
         }
     }
     if (aggr_info.size) {
-        fill_screen_glyphs(ed, 0);
+        win_dmg_from_lineno(ed->win, ed->win->dmg_scrollback_beg
+            ? ed->win->dmg_scrollback_beg - 1: ed->win->dmg_scrollback_beg
+        );
     }
 }
 
@@ -577,7 +578,7 @@ key_return(struct editor *ed) {
         diffstack_aggregate_end(&ed->diff, &aggr_info);
     }
     if (aggr_info.size != 0) {
-        fill_screen_glyphs(ed, 0);
+        win_dmg_from_lineno(ed->win, ed->win->dmg_scrollback_beg);
     }
 }
 

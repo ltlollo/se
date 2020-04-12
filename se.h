@@ -56,6 +56,8 @@ struct window {
     unsigned height;
     unsigned scrollback_size;
     unsigned scrollback_pos;
+    unsigned dmg_scrollback_beg;
+    unsigned dmg_scrollback_end;
     struct quad_coord *window_mesh;
     struct quad_coord *glyph_mesh;
     struct quad_color *font_color;

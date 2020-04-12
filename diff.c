@@ -826,10 +826,9 @@ diff_show(uint8_t *diff_beg, uint8_t *diff_end, size_t indent) {
     size_t x;
     size_t y;
 
-    for (size_t i = 0; i < indent; i++) {
-        fprintf(stderr, "  ");
+    if (indent) {
+        fprintf(stderr, "%*s", (int)indent, "  ");
     }
-
     switch (*diff_beg) {
         case DIFF_CHARS_ADD:
             diffchars_unpack(diff_beg, &x, &y);
@@ -855,6 +854,10 @@ diff_show(uint8_t *diff_beg, uint8_t *diff_end, size_t indent) {
                 diff_show(diff_beg, diff_end, indent + 1);
                 diff_beg = diffstack_curr_mvforw(diff_beg);
             }
+            break;
+        default:
+            ensure(0);
+            break;
     }
 }
 
@@ -863,7 +866,7 @@ diffstack_show(const char *msg, struct diffstack *ds) {
     uint8_t *diff_beg = ds->data + 0;
     uint8_t *diff_end = ds->data + ds->curr_checkpoint_end;
 
-    fprintf(stderr, "=== %s ===\n", msg);
+    fprintf(stderr, "diff: === %s ===\n", msg);
 
     while (diff_beg != diff_end) {
         ensure(diff_beg < diff_end);
@@ -978,7 +981,7 @@ diffstack_undo(struct editor *ed) {
     } else {
         ds->curr_checkpoint_end = 0;
     }
-    fill_screen_glyphs(ed, 0);
+    win_dmg_from_lineno(ed->win, 0);
 
     dbg(diffstack_show("undo after", ed->diff));
     return 0;
@@ -1034,7 +1037,7 @@ diffstack_redo(struct editor *ed) {
     uint8_t *last_diff_beg = ds->data + ds->last_checkpoint_beg;
     uint8_t *last_diff_end = ds->data + ds->last_checkpoint_end;
 
-    diffstack_show("redo before", ed->diff);
+    dbg(diffstack_show("redo before", ed->diff));
 
     if (diff_end == last_diff_end) {
         dbg_assert(diff_beg == last_diff_beg);
@@ -1067,9 +1070,9 @@ diffstack_redo(struct editor *ed) {
     }
     ds->curr_checkpoint_beg = diff_beg - ds->data;
     ds->curr_checkpoint_end = diff_end - ds->data;
-    fill_screen_glyphs(ed, 0);
+    win_dmg_from_lineno(ed->win, 0);
 
-    diffstack_show("redo after", ed->diff);
+    dbg(diffstack_show("redo after", ed->diff));
     return 0;
 }
 
