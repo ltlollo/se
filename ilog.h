@@ -1,3 +1,6 @@
+// This is free and unencumbered software released into the public domain.
+// For more information, see LICENSE.
+
 #ifndef ILOG_H
 #define ILOG_H
 #include <SDL2/SDL.h>

@@ -50,7 +50,7 @@ ext/unifont.o: ext/unifont.cfp
 
 clean:
 	$(RM) se umap.gen.h se.gen.h ext/rfp ext/cfp ext/umap ext/unifont.cfp \
-		unifont.rfp ext/unifont.o
+		unifont.rfp ext/unifont.o asm/*.s
 
 perf:
 	gprof2dot -f callgrind -o callgrind.dot callgrind.out
