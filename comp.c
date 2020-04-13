@@ -54,12 +54,13 @@ rfp_compress(const char *ifname, const char *ofname) {
 }
 
 void
-rfp_decompress(void *restrict in, v8 *restrict out) {
-    uint8_t *restrict beg __align(8) = in + sizeof(struct rfp_file);
-    uint8_t *restrict end __align(8) = beg + 0x288000;
+rfp_decompress(void *restrict in, v4 *restrict out) {
+    uint8_t *restrict beg __align(4) = in + sizeof(struct rfp_file);
+    uint8_t *restrict end __align(4) = beg + 0x288000;
 
-    while (beg != end) {
-        memcpy(*out++, sym_table[*beg++], sizeof(v8));
+    for (; beg != end; beg++) {
+        memcpy(*out++, sym_table[*beg  & 0xf], sizeof(*out));
+        memcpy(*out++, sym_table[*beg >> 0x4], sizeof(*out));
     }
 }
 

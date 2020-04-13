@@ -53,6 +53,7 @@ struct rfp_file {
 _Static_assert(sizeof(struct rfp_file) == 8, "unsupported architecture");
 
 typedef uint8_t v8[8] __align(8);
+typedef uint8_t v4[4] __align(4);
 
 int load_file(const char *, struct mmap_file *);
 void unload_file(struct mmap_file *);
@@ -61,6 +62,6 @@ int convert_bmp_window_to_rfp(struct bitmap_data *, unsigned, unsigned, const ch
 struct rfp_file *load_rfp_file(struct mmap_file *);
 struct rfp_file *load_cfp_file(struct mmap_file *);
 void rfp_compress(const char *, const char *);
-void rfp_decompress(void *restrict, v8 *restrict);
+void rfp_decompress(void *restrict, v4 *restrict);
 
 #endif // FIO_H
