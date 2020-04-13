@@ -171,6 +171,7 @@ diffstack_insert_chars_add(struct diffstack **ds
     , size_t size
     , size_t x
     , size_t y
+    , struct diffaggr_info *aggr_info
     ) {
     struct diffstack *res = *ds;
     uint8_t *seq_new_beg = str;
@@ -223,6 +224,7 @@ ADD_DIFFERENT_DIFF_CLASS:
             = DIFF_CHAR_SEQ;
         res->data[res->curr_checkpoint_beg + EMPTY_DIFF + size - 1]
             = DIFF_CHAR_SEQ;
+        aggr_info->size++;
     }
     res->last_checkpoint_beg = res->curr_checkpoint_beg;
     res->last_checkpoint_end = res->curr_checkpoint_end;
@@ -234,6 +236,7 @@ diffstack_insert_chars_del(struct diffstack **ds
     , size_t size
     , size_t x
     , size_t y
+    , struct diffaggr_info *aggr_info
     ) {
     struct diffstack *res = *ds;
     size_t x_end = x + size;;
@@ -290,6 +293,7 @@ DEL_DIFFERENT_DIFF_CLASS:
             = DIFF_CHAR_SEQ;
         res->data[res->curr_checkpoint_beg + EMPTY_DIFF + size - 1]
             = DIFF_CHAR_SEQ;
+        aggr_info->size++;
     }
     res->last_checkpoint_beg = res->curr_checkpoint_beg;
     res->last_checkpoint_end = res->curr_checkpoint_end;
@@ -1108,6 +1112,7 @@ diff_line_insert(struct diffstack **ds
     , struct document *doc
     , uint8_t *data
     , size_t size
+    , struct diffaggr_info *aggr_info
     ) {
     uint8_t *data_curr = data;
     uint8_t *data_end = data + size;
@@ -1128,7 +1133,13 @@ diff_line_insert(struct diffstack **ds
     memmove(el_curr + size, el_curr, (el_end - el_curr) * sizeof(*el_curr));
     memcpy(el_curr, data, size);
     line->size += size;
-    diffstack_insert_chars_add(ds, data, size, pos, line - doc->lines);
+    diffstack_insert_chars_add(ds
+        , data
+        , size
+        , pos
+        , line - doc->lines
+        , aggr_info
+    );
 }
 
 void
@@ -1137,6 +1148,7 @@ diff_line_remove(struct diffstack **ds
     , struct line *line
     , struct document *doc
     , size_t size
+    , struct diffaggr_info *aggr_info
     ) {
     struct extern_line *el = convert_line_external(line, doc);
     uint8_t *src_beg = el->data + pos + size;
@@ -1152,7 +1164,12 @@ diff_line_remove(struct diffstack **ds
     if (next_utf8_or_null(src_beg, src_end) == NULL) {
         el->utf8_status = UTF8_DIRTY;
     }
-    diffstack_insert_chars_del(ds, dst_beg, size, pos, line - doc->lines);
+    diffstack_insert_chars_del(ds
+        , dst_beg
+        , size, pos
+        , line - doc->lines
+        , aggr_info
+    );
     memmove(dst_beg, src_beg, src_end - src_beg);
     line->size -= size;
 }

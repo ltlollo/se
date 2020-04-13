@@ -306,10 +306,10 @@ add_to_cursor(struct editor *ed
             , ed->doc
             , buf
             , bufsz
+            , aggr_info
         );
         sel->glyph_beg++;
         sel->glyph_end++;
-        aggr_info->size++;
     }
 }
 
@@ -329,7 +329,7 @@ key_insert_chars(struct editor *ed, int key, int mod) {
     buf[0] = key & 0x7f;
     bufsz = 1;
 
-    if (ed->selv->size == 1) {
+    if (ed->selv->size == 1 && key != '\t') {
         if (sel->line != ed->doc->loaded_size
             && sel->glyph_beg == sel->glyph_end
         ) {
@@ -356,8 +356,18 @@ key_insert_chars(struct editor *ed, int key, int mod) {
                 delete_selection(ed, sel, &aggr_info);
             }
         }
-        for (sel = ed->selv->data; sel != sel_end; sel++) {
-            add_to_cursor(ed, sel, buf, bufsz, &aggr_info);
+        if (key != '\t') {
+            for (sel = ed->selv->data; sel != sel_end; sel++) {
+                add_to_cursor(ed, sel, buf, bufsz, &aggr_info);
+            }
+        } else {
+            buf[0] = ' ';
+            for (sel = ed->selv->data; sel != sel_end; sel++) {
+                size_t tab_stop = 4 - sel->glyph_beg % 4;
+                for (size_t i = 0; i < tab_stop; i++) {
+                    add_to_cursor(ed, sel, buf, bufsz, &aggr_info);
+                }
+            }
         }
         diffstack_aggregate_end(&ed->diff, &aggr_info);
     }
@@ -401,9 +411,8 @@ delete_selection(struct editor *ed
             dbg_assert(i <= sel->glyph_end);
             delta = line_curr - line_del_beg;
         }
-        diff_line_remove(&ed->diff, pos, line, doc, delta);
+        diff_line_remove(&ed->diff, pos, line, doc, delta, aggr_info);
         sel->glyph_end = sel->glyph_beg;
-        aggr_info->size++;
     }
 }
 
@@ -433,7 +442,7 @@ delete_cursor(struct editor *ed
         } else {
             delta = 1;
         }
-        diff_line_remove(&ed->diff, pos, line, doc, delta);
+        diff_line_remove(&ed->diff, pos, line, doc, delta, aggr_info);
         sel->glyph_beg--;
         sel->glyph_end--;
         aggr_info->size++;
@@ -506,7 +515,34 @@ key_backspace(struct editor *ed) {
             if (sel->glyph_beg != sel->glyph_end) {
                 delete_selection(ed, sel, &aggr_info);
             } else if (sel->glyph_end) {
-                delete_cursor(ed, sel, &aggr_info);
+                if (sel->glyph_beg != 0) {
+                    struct line *line = ed->doc->lines + sel->line;
+                    uint8_t *line_curr = sync_width_or_null(line
+                        , sel->glyph_end - 1
+                        , ed->doc
+                    );
+                    int space_to_del = sel->glyph_beg % 4 == 0
+                        ? 4
+                        : sel->glyph_beg % 4
+                    ;
+                    int del_indent = 0;
+
+                    for (; del_indent < space_to_del; del_indent++) {
+                        if (line_curr[-del_indent] != ' ') {
+                            break;
+                        }
+                    }
+                    if (del_indent == space_to_del
+                        || ed->conf_params.delete_indent
+                    ) {
+                        sel->glyph_beg = sel->glyph_beg - del_indent;
+                        delete_selection(ed, sel, &aggr_info);
+                    } else {
+                        delete_cursor(ed, sel, &aggr_info);
+                    }
+                } else {
+                    delete_cursor(ed, sel, &aggr_info);
+                }
             }
         } else {
             diffstack_aggregate_begin(&ed->diff, &aggr_info);
@@ -526,8 +562,10 @@ key_backspace(struct editor *ed) {
         }
     }
     if (aggr_info.size) {
-        win_dmg_from_lineno(ed->win, ed->win->dmg_scrollback_beg
-            ? ed->win->dmg_scrollback_beg - 1: ed->win->dmg_scrollback_beg
+        win_dmg_from_lineno(ed->win
+            , ed->win->dmg_scrollback_beg
+                ? ed->win->dmg_scrollback_beg - 1
+                : ed->win->dmg_scrollback_beg
         );
     }
 }

@@ -163,20 +163,24 @@ struct conf_data {
     char val[VAL_LEN];
 };
 
-struct conf {
+struct conf_file {
     char path[PATH_MAX];
     struct mmap_file file;
     size_t size;
     struct conf_data data[CONF_LEN];
 };
 
+struct conf_params {
+    int dump_on_exit;
+    int delete_indent;
+};
 
 struct editor {
     struct window *win;
     struct document *doc;
     struct diffstack *diff;
     struct selectarr *selv;
-    struct conf conf;
+    struct conf_params conf_params;
 };
 
 #endif // SE_H

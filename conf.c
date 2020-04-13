@@ -4,7 +4,7 @@
 #include "fio.h"
 
 int
-conf_add(struct conf *conf
+conf_add(struct conf_file *conf
     , char key[static KEY_LEN]
     , char val[static VAL_LEN]
 ) {
@@ -20,7 +20,7 @@ conf_add(struct conf *conf
 }
 
 struct conf_data *
-conf_find(struct conf *conf, char *key) {
+conf_find(struct conf_file *conf, char *key) {
     for (struct conf_data *i = conf->data; i < conf->data + conf->size; i++) {
         if (strcmp(i->key, key) == 0) {
             return i;
@@ -30,7 +30,7 @@ conf_find(struct conf *conf, char *key) {
 }
 
 int
-conf_fill(struct conf *conf) {
+conf_fill(struct conf_file *conf) {
     char *beg = conf->file.data;
     char *end = conf->file.data + conf->file.size;
     char key[KEY_LEN];
@@ -143,7 +143,7 @@ conf_fill(struct conf *conf) {
 }
 
 void
-init_conf(struct conf *conf) {
+init_conf_file(struct conf_file *conf) {
     char *home = getenv("HOME");
 
     if (home == NULL) {

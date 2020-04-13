@@ -1521,8 +1521,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
         );
         cursors_reposition(ed->selv, ed->doc);
         screen_reposition(ed);
-        fill_screen_glyphs(ed, 0);
-        fill_screen_colors(ed, 0);
+        fill_screen(ed, 0);
         gl_buffers_upload(ed->win);
         window_render(ed->win, gl_id);
     }
@@ -1538,22 +1537,26 @@ cursors_reposition(struct selectarr *selv, struct document *doc) {
 
 int
 init_editor(struct editor *ed, const char *fname) {
-    init_conf(&ed->conf);
+    struct conf_file conf_file;
+
+    init_conf_file(&conf_file);
     xensure(init_diffstack(&ed->diff, 0x1000) == 0);
     xensure(init_doc(fname, &ed->doc) == 0);
     xensure(init_sel(0x10, &ed->selv) == 0);
     ed->win = malloc(sizeof(struct window));
     ensure(ed->win);
 
-    struct conf_data *dump_on_exit = conf_find(&ed->conf, "dump_on_exit");
+    struct conf_data *dump_on_exit = conf_find(&conf_file, "dump_on_exit");
     if (dump_on_exit) {
-        if (strcmp(dump_on_exit->val, "1") == 0) {
-            ilog_enable = 1;
-        }
+        ed->conf_params.dump_on_exit = strcmp(dump_on_exit->val, "1") == 0;
+        ilog_enable = ed->conf_params.dump_on_exit;
+    }
+    struct conf_data *delete_indent = conf_find(&conf_file, "delete_indent");
+    if (delete_indent) {
+        ed->conf_params.delete_indent = strcmp(delete_indent->val, "1") == 0;
     }
     struct sigaction sa = { .sa_handler = ilog_dump_sig, };
     sigaction(SIGUSR1, &sa, NULL);
-
     return 0;
 }
 
