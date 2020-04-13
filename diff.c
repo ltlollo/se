@@ -76,6 +76,7 @@ diffstack_insert_merge(struct diffstack **ds
     , size_t size
     , size_t x
     , size_t y
+    , struct diffaggr_info *info
     ) {
     struct diffstack *res = *ds;
     size_t old_x;
@@ -101,8 +102,6 @@ diffstack_insert_merge(struct diffstack **ds
             , &old_size
         );
         if ((old_x != 0 || old_y != y + size) || 1) {
-            // TODO: propagate if two calsses are merged, if so must not
-            // increment the diffaggr_info size
             goto MERGE_DIFFERENT_DIFF_CLASS;
         }
         old_size += size;
@@ -114,6 +113,7 @@ MERGE_DIFFERENT_DIFF_CLASS:
         res->data[res->curr_checkpoint_beg] = DIFF_LINE_MERGE;
         diffsplit_pack(res->data + res->curr_checkpoint_beg, x, y, size);
         res->data[res->curr_checkpoint_end - 1] = DIFF_SPLIT_SEP;
+        info->size++;
     }
     res->last_checkpoint_beg = res->curr_checkpoint_beg;
     res->last_checkpoint_end = res->curr_checkpoint_end;
@@ -124,6 +124,7 @@ diffstack_insert_split(struct diffstack **ds
     , size_t size
     , size_t x
     , size_t y
+    , struct diffaggr_info *info
     ) {
     struct diffstack *res = *ds;
     size_t old_x;
@@ -160,6 +161,7 @@ SPLIT_DIFFERENT_DIFF_CLASS:
         res->data[res->curr_checkpoint_beg] = DIFF_LINE_SPLIT;
         diffsplit_pack(res->data + res->curr_checkpoint_beg, x, y, size);
         res->data[res->curr_checkpoint_end - 1] = DIFF_SPLIT_SEP;
+        info->size++;
     }
     res->last_checkpoint_beg = res->curr_checkpoint_beg;
     res->last_checkpoint_end = res->curr_checkpoint_end;
@@ -171,7 +173,7 @@ diffstack_insert_chars_add(struct diffstack **ds
     , size_t size
     , size_t x
     , size_t y
-    , struct diffaggr_info *aggr_info
+    , struct diffaggr_info *info
     ) {
     struct diffstack *res = *ds;
     uint8_t *seq_new_beg = str;
@@ -224,7 +226,7 @@ ADD_DIFFERENT_DIFF_CLASS:
             = DIFF_CHAR_SEQ;
         res->data[res->curr_checkpoint_beg + EMPTY_DIFF + size - 1]
             = DIFF_CHAR_SEQ;
-        aggr_info->size++;
+        info->size++;
     }
     res->last_checkpoint_beg = res->curr_checkpoint_beg;
     res->last_checkpoint_end = res->curr_checkpoint_end;
@@ -236,7 +238,7 @@ diffstack_insert_chars_del(struct diffstack **ds
     , size_t size
     , size_t x
     , size_t y
-    , struct diffaggr_info *aggr_info
+    , struct diffaggr_info *info
     ) {
     struct diffstack *res = *ds;
     size_t x_end = x + size;;
@@ -293,7 +295,7 @@ DEL_DIFFERENT_DIFF_CLASS:
             = DIFF_CHAR_SEQ;
         res->data[res->curr_checkpoint_beg + EMPTY_DIFF + size - 1]
             = DIFF_CHAR_SEQ;
-        aggr_info->size++;
+        info->size++;
     }
     res->last_checkpoint_beg = res->curr_checkpoint_beg;
     res->last_checkpoint_end = res->curr_checkpoint_end;
@@ -1100,9 +1102,10 @@ diff_line_split(struct diffstack **ds
     , size_t x
     , size_t y
     , struct document **doc
+    , struct diffaggr_info *info
     ) {
     insert_n_line(x, y, 1, doc);
-    diffstack_insert_split(ds, 1, x, y);
+    diffstack_insert_split(ds, 1, x, y, info);
 }
 
 void
@@ -1112,7 +1115,7 @@ diff_line_insert(struct diffstack **ds
     , struct document *doc
     , uint8_t *data
     , size_t size
-    , struct diffaggr_info *aggr_info
+    , struct diffaggr_info *info
     ) {
     uint8_t *data_curr = data;
     uint8_t *data_end = data + size;
@@ -1138,7 +1141,7 @@ diff_line_insert(struct diffstack **ds
         , size
         , pos
         , line - doc->lines
-        , aggr_info
+        , info
     );
 }
 
@@ -1148,7 +1151,7 @@ diff_line_remove(struct diffstack **ds
     , struct line *line
     , struct document *doc
     , size_t size
-    , struct diffaggr_info *aggr_info
+    , struct diffaggr_info *info
     ) {
     struct extern_line *el = convert_line_external(line, doc);
     uint8_t *src_beg = el->data + pos + size;
@@ -1168,7 +1171,7 @@ diff_line_remove(struct diffstack **ds
         , dst_beg
         , size, pos
         , line - doc->lines
-        , aggr_info
+        , info
     );
     memmove(dst_beg, src_beg, src_end - src_beg);
     line->size -= size;
@@ -1179,6 +1182,7 @@ diff_line_merge(struct diffstack **ds
     , size_t x
     , size_t y
     , struct document **doc
+    , struct diffaggr_info *info
     ) {
     struct document *res = *doc;
     struct line *from = res->lines + y;
@@ -1189,7 +1193,7 @@ diff_line_merge(struct diffstack **ds
 
     dbg_assert(from < res->lines + res->loaded_size);
 
-    diffstack_insert_merge(ds, from, 1, x, y);
+    diffstack_insert_merge(ds, from, 1, x, y, info);
     merge_lines(into, from, res);
 
     free_line(from, res);
