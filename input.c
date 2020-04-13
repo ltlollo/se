@@ -135,33 +135,24 @@ alt_cursors_up(struct editor *ed, int mod) {
 
 void
 move_cursors_right(struct selectarr *selv, int mod, struct document *doc) {
-    struct selection *sel_curr;
-    struct line* line;
-    uint8_t *line_curr;
-    uint8_t *line_end;
-    uint32_t glyph;
-    int utf8;
-    size_t span;
-    size_t i;
-
     if (mod & KMOD_LCTRL) {
-        sel_curr = selv->data;
+        struct selection *sel_curr = selv->data;
         while (sel_curr != selv->data + selv->size) {
             dbg_assert(sel_curr->line <= doc->loaded_size);
-            span = 0;
-            line = doc->lines + sel_curr->line;
-            line_curr = begin_line(line, doc);
-            line_end = end_line(line, doc);
-            utf8 = is_line_utf8(line, doc);
+            size_t span = 0;
+            struct line *line = doc->lines + sel_curr->line;
+            uint8_t *line_curr = begin_line(line, doc);
+            uint8_t *line_end = end_line(line, doc);
+            int utf8 = is_line_utf8(line, doc);
             if (utf8) {
-                for (i = 0
+                for (size_t i = 0
                     ; i < sel_curr->glyph_end && line_curr != line_end
                     ; i++
                     ) {
                     line_curr = next_utf8_char(line_curr);
                 }
                 if (line_curr < line_end && utf8) {
-                    glyph = iter_glyph_from_utf8(&line_curr);
+                    uint32_t glyph = iter_glyph_from_utf8(&line_curr);
                     sel_curr->glyph_end++;
                     span++;
                     while (line_curr < line_end) {
@@ -184,7 +175,7 @@ move_cursors_right(struct selectarr *selv, int mod, struct document *doc) {
             sel_curr++;
         }
     } else {
-        sel_curr = selv->data;
+        struct selection *sel_curr = selv->data;
         while (sel_curr != selv->data + selv->size) {
             sel_curr->glyph_end++;
             sel_curr++;
@@ -203,9 +194,6 @@ void
 move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
     struct selection *sel_curr;
     struct line* line;
-    uint8_t *line_curr;
-    uint8_t *line_beg;
-    uint8_t *line_end;
     uint32_t glyph;
     int utf8;
     size_t span;
@@ -221,9 +209,9 @@ move_cursors_left(struct selectarr *selv, int mod, struct document *doc) {
             }
             span = 0;
             line = doc->lines + sel_curr->line;
-            line_beg = begin_line(line, doc);
-            line_end = end_line(line, doc);
-            line_curr = line_beg;
+            uint8_t *line_beg = begin_line(line, doc);
+            uint8_t *line_end = end_line(line, doc);
+            uint8_t *line_curr = line_beg;
             utf8 = is_line_utf8(line, doc);
             if (utf8) {
                 for (i = 0
@@ -290,16 +278,12 @@ add_to_cursor(struct editor *ed
     , struct diffaggr_info *aggr_info
     ) {
     struct line *line = ed->doc->lines + sel->line;
-    uint8_t *line_beg;
-    uint8_t *line_curr;
-    size_t pos;
-
     dbg_assert(line < ed->doc->lines + ed->doc->loaded_size);
 
-    line_beg = begin_line(line, ed->doc);
-    line_curr = sync_width_or_null(line, sel->glyph_end, ed->doc);
+    uint8_t *line_beg = begin_line(line, ed->doc);
+    uint8_t *line_curr = sync_width_or_null(line, sel->glyph_end, ed->doc);
     if (line_curr) {
-        pos = line_curr - line_beg;
+        size_t pos = line_curr - line_beg;
         diff_line_insert(&ed->diff
             , pos
             , line
@@ -378,30 +362,24 @@ delete_selection(struct editor *ed
     ) {
     struct document *doc = ed->doc;
     struct line *line = ed->doc->lines + sel->line;
-    uint8_t *line_beg;
-    uint8_t *line_end;
-    uint8_t *line_curr;
-    uint8_t *line_del_beg;
-    size_t pos;
-    size_t delta;
-    size_t i;
 
     dbg_assert(line < doc->lines + doc->loaded_size);
     dbg_assert(sel->glyph_beg != sel->glyph_end);
 
-    line_beg = begin_line(line, doc);
-    line_end = end_line(line, doc);
-    line_curr = sync_width_or_null(line, sel->glyph_beg, doc);
-    line_del_beg = line_curr;
+    uint8_t *line_beg = begin_line(line, doc);
+    uint8_t *line_end = end_line(line, doc);
+    uint8_t *line_curr = sync_width_or_null(line, sel->glyph_beg, doc);
+    uint8_t *line_del_beg = line_curr;
     if (line_curr && line_curr < line_end) {
-        pos = line_curr - line_beg;
+        size_t pos = line_curr - line_beg;
+        size_t delta;
         if (!is_line_utf8(line, doc)) {
             delta = min(line_end
                 , line_curr + (sel->glyph_end - sel->glyph_beg)
             ) - line_curr;
         } else {
             delta = 0;
-            i = sel->glyph_beg;
+            size_t i = sel->glyph_beg;
             while (line_curr != line_end && i != sel->glyph_end) {
                 line_curr  = next_utf8_char(line_curr);
                 i++;
@@ -421,20 +399,16 @@ delete_cursor(struct editor *ed
     ) {
     struct document *doc = ed->doc;
     struct line *line = ed->doc->lines + sel->line;
-    uint8_t *line_beg;
-    uint8_t *line_end;
-    uint8_t *line_curr;
-    size_t pos;
-    size_t delta;
 
     dbg_assert(sel->glyph_end);
     dbg_assert(line < doc->lines + doc->loaded_size);
 
-    line_beg = begin_line(line, doc);
-    line_end = end_line(line, doc);
-    line_curr = sync_width_or_null(line, sel->glyph_end - 1, doc);
+    uint8_t *line_beg = begin_line(line, doc);
+    uint8_t *line_end = end_line(line, doc);
+    uint8_t *line_curr = sync_width_or_null(line, sel->glyph_end - 1, doc);
     if (line_curr && line_curr < line_end) {
-        pos = line_curr - line_beg;
+        size_t pos = line_curr - line_beg;
+        size_t delta;
         if (is_line_utf8(line, doc)) {
             delta = next_utf8_char(line_curr) - line_curr;
         } else {
@@ -515,6 +489,9 @@ key_backspace(struct editor *ed) {
                         , sel->glyph_end - 1
                         , ed->doc
                     );
+                    if (line_curr == NULL) {
+                        return;
+                    }
                     int space_to_del = sel->glyph_beg % 4 == 0
                         ? 4
                         : sel->glyph_beg % 4
@@ -571,16 +548,11 @@ insert_nl(struct editor *ed
     , struct selection *sel
     , struct diffaggr_info *info
     ) {
-    struct line *line;
-    uint8_t *line_beg;
-    uint8_t *line_curr;
-    size_t pos;
-
-    line = ed->doc->lines + sel->line;
-    line_beg = begin_line(line, ed->doc);
-    line_curr = sync_width_or_null(line, sel->glyph_end, ed->doc);
+    struct line *line = ed->doc->lines + sel->line;
+    uint8_t *line_beg = begin_line(line, ed->doc);
+    uint8_t *line_curr = sync_width_or_null(line, sel->glyph_end, ed->doc);
     if (line_curr) {
-        pos = line_curr - line_beg;
+        size_t pos = line_curr - line_beg;
         diff_line_split(&ed->diff
             , pos
             , sel->line

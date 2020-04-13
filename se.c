@@ -1090,15 +1090,22 @@ glyphs_in_utf8_span(uint8_t *curr, uint8_t *end) {
 }
 
 size_t
-glyphs_in_line(struct line *line, struct document *doc) {
+glyphs_in_line_width(struct line *line, struct document *doc,  size_t delta) {
     uint8_t *beg = begin_line(line, doc);
-    uint8_t *end = end_line(line, doc);
+    uint8_t *end = beg + delta;
+
+    ensure(end <= beg + line->size);
 
     if (is_line_utf8(line, doc)) {
         return glyphs_in_utf8_span(beg, end);
     } else {
         return end - beg;
     }
+}
+
+size_t
+glyphs_in_line(struct line *line, struct document *doc) {
+    return glyphs_in_line_width(line, doc, line->size);
 }
 
 uint8_t *

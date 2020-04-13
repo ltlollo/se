@@ -791,6 +791,7 @@ reposition_cursor_undo(struct editor *ed
     , uint8_t *diff_end
 ) {
     struct selectarr *selv = ed->selv;
+    struct line *line;
     size_t x;
     size_t y;
 
@@ -807,6 +808,10 @@ reposition_cursor_undo(struct editor *ed
         case DIFF_CHARS_DEL:
         case DIFF_LINE_SPLIT:
             diffchars_unpack(diff_beg, &x, &y);
+            line = ed->doc->lines + y;
+            ensure(y < ed->doc->loaded_size);
+            x = glyphs_in_line_width(line, ed->doc, x);
+
             selv->size = 1;
             selv->focus = selv->data;
             selv->focus->line = y;
@@ -838,28 +843,29 @@ diff_show(uint8_t *diff_beg, uint8_t *diff_end, size_t indent) {
     switch (*diff_beg) {
         case DIFF_CHARS_ADD:
             diffchars_unpack(diff_beg, &x, &y);
-            fprintf(stderr, "{ADD, x: %5.lu, y: %5.lu}\n", x, y);
+            fprintf(stderr, "add { x: %5.lu, y: %5.lu}\n", x, y);
             break;
         case DIFF_CHARS_DEL:
             diffchars_unpack(diff_beg, &x, &y);
-            fprintf(stderr, "{DEL, x: %5.lu, y: %5.lu}\n", x, y);
+            fprintf(stderr, "del { x: %5.lu, y: %5.lu}\n", x, y);
             break;
         case DIFF_LINE_SPLIT:
             diffchars_unpack(diff_beg, &x, &y);
-            fprintf(stderr, "{SPL, x: %5.lu, y: %5.lu}\n", x, y);
+            fprintf(stderr, "spl { x: %5.lu, y: %5.lu}\n", x, y);
             break;
         case DIFF_LINE_MERGE:
             diffchars_unpack(diff_beg, &x, &y);
-            fprintf(stderr, "{MRG, x: %5.lu, y: %5.lu}\n", x, y);
+            fprintf(stderr, "mgr { x: %5.lu, y: %5.lu}\n", x, y);
             break;
         case DIFF_AGGREGATE:
             memcpy(&aggr_size, diff_beg + 1, sizeof(aggr_size));
             diff_beg = diff_beg + SIZE_AGGR;
-
+            fprintf(stderr, "beg { size: %5.lu }\n", aggr_size);
             for (size_t i = 0; i < aggr_size; i++) {
                 diff_show(diff_beg, diff_end, indent + 1);
                 diff_beg = diffstack_curr_mvforw(diff_beg);
             }
+            fprintf(stderr, "end { size: %5.lu }\n", aggr_size);
             break;
         default:
             ensure(0);
@@ -1169,7 +1175,8 @@ diff_line_remove(struct diffstack **ds
     }
     diffstack_insert_chars_del(ds
         , dst_beg
-        , size, pos
+        , size
+        , pos
         , line - doc->lines
         , info
     );

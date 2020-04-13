@@ -44,6 +44,7 @@ void fill_line_colors(unsigned, int, uint8_t *, uint8_t *, unsigned, struct wind
 uint8_t * next_utf8_char(uint8_t *);
 uint8_t * prev_utf8_char(uint8_t *);
 size_t glyphs_in_utf8_span(uint8_t *, uint8_t *);
+size_t glyphs_in_line_width(struct line *, struct document *,  size_t);
 size_t glyphs_in_line(struct line *, struct document *);
 uint8_t * sync_utf8_width_or_null(uint8_t *, uint8_t *, size_t);
 uint8_t * sync_width_or_null(struct line *, size_t, struct document *);
