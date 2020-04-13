@@ -445,7 +445,6 @@ delete_cursor(struct editor *ed
         diff_line_remove(&ed->diff, pos, line, doc, delta, aggr_info);
         sel->glyph_beg--;
         sel->glyph_end--;
-        aggr_info->size++;
     }
 }
 
