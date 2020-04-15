@@ -315,10 +315,7 @@ diffstack_undo_line_merge(uint8_t *diff_beg
     dbg_assert(diff_end == diff_beg + SIZE_SPLIT);
     dbg_assert(*diff_beg == DIFF_LINE_MERGE);
 
-    memcpy(&x, diff_beg + 1, sizeof(size_t));
-    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
-    memcpy(&n, diff_beg + 1 + 2 * sizeof(size_t), sizeof(size_t));
-
+    diffsplit_unpack(diff_beg, &x, &y, &n);
     ensure(n != 0);
 
     fst = doc->lines + y;
@@ -346,10 +343,7 @@ diffstack_undo_line_split(uint8_t *diff_beg
     dbg_assert(diff_end == diff_beg + SIZE_SPLIT);
     dbg_assert(*diff_beg == DIFF_LINE_SPLIT);
 
-    memcpy(&x, diff_beg + 1, sizeof(size_t));
-    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
-    memcpy(&n, diff_beg + 1 + 2 * sizeof(size_t), sizeof(size_t));
-
+    diffsplit_unpack(diff_beg, &x, &y, &n);
     ensure(n != 0);
 
     if (y == DIFF_ADD_EOD) {
@@ -579,10 +573,7 @@ diffstack_redo_line_split(uint8_t *diff_beg
     dbg_assert(diff_end == diff_beg + SIZE_SPLIT);
     dbg_assert(*diff_beg == DIFF_LINE_SPLIT);
 
-    memcpy(&x, diff_beg + 1, sizeof(size_t));
-    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
-    memcpy(&n, diff_beg + 1 + 2 * sizeof(size_t), sizeof(size_t));
-
+    diffsplit_unpack(diff_beg, &x, &y, &n);
     ensure(n != 0);
 
     fst = doc->lines + y;
@@ -610,10 +601,7 @@ diffstack_redo_line_merge(uint8_t *diff_beg
     dbg_assert(diff_end == diff_beg + SIZE_SPLIT);
     dbg_assert(*diff_beg == DIFF_LINE_MERGE);
 
-    memcpy(&x, diff_beg + 1, sizeof(size_t));
-    memcpy(&y, diff_beg + 1 + sizeof(size_t), sizeof(size_t));
-    memcpy(&n, diff_beg + 1 + 2 * sizeof(size_t), sizeof(size_t));
-
+    diffsplit_unpack(diff_beg, &x, &y, &n);
     ensure(n != 0);
 
     if (y == DIFF_ADD_EOD) {
@@ -792,20 +780,46 @@ reposition_cursor_undo(struct editor *ed
 ) {
     struct selectarr *selv = ed->selv;
     struct line *line;
+    uint8_t *seq_beg = diff_beg + DIFF_CHARS_OFF;
+    uint8_t *seq_end = diff_end - 1;
+    size_t diff_size = seq_end - seq_beg;
     size_t x;
     size_t y;
 
     if (diff_beg == diff_end) {
         return -1;
     }
+CHECK_UNDO_TYPE:
     switch (*diff_beg) {
         case DIFF_AGGREGATE:
             diff_beg = diffaggr_first_simple(diff_beg);
-            if (diff_beg == NULL)
+            if (diff_beg == NULL) {
                 break;
-            /* fallthrough */
-        case DIFF_CHARS_ADD:
+            } else {
+                diff_end = diffstack_curr_mvforw(diff_beg);
+                seq_beg = diff_beg + DIFF_CHARS_OFF;
+                seq_end = diff_end - 1;
+                diff_size = seq_end - seq_beg;
+                goto CHECK_UNDO_TYPE;
+            }
         case DIFF_CHARS_DEL:
+            diffchars_unpack(diff_beg, &x, &y);
+            line = ed->doc->lines + y;
+            ensure(y < ed->doc->loaded_size);
+            x = glyphs_in_line_width(line, ed->doc, x - diff_size);
+
+            if (is_line_utf8(line, ed->doc)) {
+                x = x + glyphs_in_utf8_revspan(seq_beg, seq_end);
+            } else {
+                x = x + diff_size;
+            }
+            selv->size = 1;
+            selv->focus = selv->data;
+            selv->focus->line = y;
+            selv->focus->glyph_beg = x;
+            selv->focus->glyph_end = x;
+            break;
+        case DIFF_CHARS_ADD:
         case DIFF_LINE_SPLIT:
             diffchars_unpack(diff_beg, &x, &y);
             line = ed->doc->lines + y;
@@ -832,10 +846,37 @@ reposition_cursor_undo(struct editor *ed
 }
 
 void
+show_revseq(char *seq_beg, char *seq_end) {
+    size_t delta = seq_end - seq_beg;
+    uint8_t seq[4];
+    size_t i;
+    size_t j;
+
+    for (i = 0; i < delta / 4; i++) {
+        for (j = 0; j < 4; j++) {
+            seq[j] = seq_end[-(4 * i + j + 1)];
+        }
+        fwrite(seq, 1, 4, stderr);
+    }
+    for (j = 0; j < delta % 4; j++) {
+        seq[j] = seq_end[-(4 * i + j + 1)];
+    }
+    fwrite(seq, 1, delta % 4, stderr);
+}
+
+void
+show_seq(char *seq_beg, char *seq_end) {
+    fwrite(seq_beg, 1, seq_end - seq_beg, stderr);
+}
+
+void
 diff_show(uint8_t *diff_beg, uint8_t *diff_end, size_t indent) {
+    uint8_t *seq_beg = diff_beg + DIFF_CHARS_OFF;
+    uint8_t *seq_end = diff_end - 1;
     size_t aggr_size;
     size_t x;
     size_t y;
+    size_t n;
 
     if (indent) {
         fprintf(stderr, "%*s", (int)indent, "  ");
@@ -843,27 +884,32 @@ diff_show(uint8_t *diff_beg, uint8_t *diff_end, size_t indent) {
     switch (*diff_beg) {
         case DIFF_CHARS_ADD:
             diffchars_unpack(diff_beg, &x, &y);
-            fprintf(stderr, "add { x: %5.lu, y: %5.lu}\n", x, y);
+            fprintf(stderr, "add { x: %5.lu, y: %5.lu, p: ", x, y);
+            show_seq(seq_beg, seq_end);
+            fputs("}\n", stderr);
             break;
         case DIFF_CHARS_DEL:
             diffchars_unpack(diff_beg, &x, &y);
-            fprintf(stderr, "del { x: %5.lu, y: %5.lu}\n", x, y);
+            fprintf(stderr, "add { x: %5.lu, y: %5.lu, p: ", x, y);
+            show_revseq(seq_beg, seq_end);
+            fputs("}\n", stderr);
             break;
         case DIFF_LINE_SPLIT:
-            diffchars_unpack(diff_beg, &x, &y);
-            fprintf(stderr, "spl { x: %5.lu, y: %5.lu}\n", x, y);
+            diffsplit_unpack(diff_beg, &x, &y, &n);
+            fprintf(stderr, "spl { x: %5.lu, y: %5.lu, n: %5.lu}\n", x, y, n);
             break;
         case DIFF_LINE_MERGE:
-            diffchars_unpack(diff_beg, &x, &y);
-            fprintf(stderr, "mgr { x: %5.lu, y: %5.lu}\n", x, y);
+            diffsplit_unpack(diff_beg, &x, &y, &n);
+            fprintf(stderr, "mgr { x: %5.lu, y: %5.lu, n: %5.lu}\n", x, y, n);
             break;
         case DIFF_AGGREGATE:
             memcpy(&aggr_size, diff_beg + 1, sizeof(aggr_size));
             diff_beg = diff_beg + SIZE_AGGR;
             fprintf(stderr, "beg { size: %5.lu }\n", aggr_size);
             for (size_t i = 0; i < aggr_size; i++) {
+                uint8_t *diff_end = diffstack_curr_mvforw(diff_beg);
                 diff_show(diff_beg, diff_end, indent + 1);
-                diff_beg = diffstack_curr_mvforw(diff_beg);
+                diff_beg = diff_end;
             }
             fprintf(stderr, "end { size: %5.lu }\n", aggr_size);
             break;
@@ -877,14 +923,15 @@ void
 diffstack_show(const char *msg, struct diffstack *ds) {
     uint8_t *diff_beg = ds->data + 0;
     uint8_t *diff_end = ds->data + ds->curr_checkpoint_end;
+    uint8_t *diff_curr_end;
 
     fprintf(stderr, "diff: === %s ===\n", msg);
 
     while (diff_beg != diff_end) {
         ensure(diff_beg < diff_end);
-        diff_show(diff_beg, diff_end, 0);
-
-        diff_beg = diffstack_curr_mvforw(diff_beg);
+        diff_curr_end = diffstack_curr_mvforw(diff_beg);
+        diff_show(diff_beg, diff_curr_end, 0);
+        diff_beg = diff_curr_end;
     }
 }
 
@@ -897,6 +944,7 @@ reposition_cursor_redo(struct editor *ed
     uint8_t *seq_beg = diff_beg + DIFF_CHARS_OFF;
     uint8_t *seq_end = diff_end - 1;
     size_t diff_size = seq_end - seq_beg;
+    struct  line *line;
     size_t x;
     size_t y;
 
@@ -919,16 +967,33 @@ reposition_cursor_redo(struct editor *ed
             selv->size = 1;
             selv->focus = selv->data;
             selv->focus->line = y;
-            selv->focus->glyph_beg = x + diff_size;
-            selv->focus->glyph_end = x + diff_size;
+            line = ed->doc->lines + y;
+            ensure(y < ed->doc->loaded_size);
+
+            x = glyphs_in_line_width(line, ed->doc, x);
+            if (is_line_utf8(line, ed->doc)) {
+                x = x + glyphs_in_utf8_span(seq_beg, seq_end);
+            } else {
+                x = x + diff_size;
+            }
+            selv->focus->glyph_beg = x;
+            selv->focus->glyph_end = x;
             break;
         case DIFF_CHARS_DEL:
             diffchars_unpack(diff_beg, &x, &y);
             selv->size = 1;
             selv->focus = selv->data;
             selv->focus->line = y;
-            selv->focus->glyph_beg = x - diff_size;
-            selv->focus->glyph_end = x - diff_size;
+            line = ed->doc->lines + y;
+            ensure(y < ed->doc->loaded_size);
+
+            if (is_line_utf8(line, ed->doc)) {
+                x = glyphs_in_line_width(line, ed->doc, x - diff_size);
+            } else {
+                x = x - diff_size;
+            }
+            selv->focus->glyph_beg = x;
+            selv->focus->glyph_end = x;
             break;
         case DIFF_LINE_SPLIT:
             diffchars_unpack(diff_beg, &x, &y);
@@ -943,6 +1008,10 @@ reposition_cursor_redo(struct editor *ed
             selv->size = 1;
             selv->focus = selv->data;
             selv->focus->line = y;
+            line = ed->doc->lines + y;
+            ensure(y < ed->doc->loaded_size);
+            x = glyphs_in_line_width(line, ed->doc, x);
+
             selv->focus->glyph_beg = x;
             selv->focus->glyph_end = x;
             break;

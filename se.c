@@ -1069,6 +1069,22 @@ next_utf8_char(uint8_t *curr) {
 }
 
 uint8_t *
+prev_utf8_revchar(uint8_t *curr) {
+    if ((*curr & 0x80) == 0) {
+        curr -= 1;
+    } else if ((*curr & 0xe0) == 0xc0) {
+        curr -= 2;
+    } else if ((*curr & 0xf0) == 0xe0) {
+        curr -= 3;
+    } else if ((*curr & 0xf8) == 0xf0) {
+        curr -= 4;
+    } else {
+        dbg_assert(0);
+    }
+    return curr;
+}
+
+uint8_t *
 prev_utf8_char(uint8_t *curr) {
     uint8_t *end = curr;
 
@@ -1085,6 +1101,17 @@ glyphs_in_utf8_span(uint8_t *curr, uint8_t *end) {
 
     for (curr_width = 0; curr < end; curr_width++) {
         curr = next_utf8_char(curr);
+    }
+    return curr_width;
+}
+
+size_t
+glyphs_in_utf8_revspan(uint8_t *beg, uint8_t *end) {
+    size_t curr_width;
+    uint8_t *last = end - 1;
+
+    for (curr_width = 0; last >= beg; curr_width++) {
+        last = prev_utf8_revchar(last);
     }
     return curr_width;
 }
