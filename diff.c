@@ -347,6 +347,7 @@ diffstack_undo_line_split(uint8_t *diff_beg
     ensure(n != 0);
 
     if (y == DIFF_ADD_EOD) {
+        // TODO WAAAT? is DIFF_ADD_EOD a thing?
         fst = doc->lines + doc->loaded_size - n;
         end = doc->lines + doc->loaded_size;
         for (curr = fst; curr != end; curr++) {
@@ -357,14 +358,8 @@ diffstack_undo_line_split(uint8_t *diff_beg
     } else {
         fst = doc->lines + y;
         snd = fst + n;
-
         merge_lines(fst, snd, doc);
-
-        for (curr = fst + 1; curr != snd + 1; curr++) {
-            free_line(curr, doc);
-        }
-        memcpy(fst + 1, snd + 1, (doc->loaded_size + 1 - n) * sizeof(*fst));
-        doc->loaded_size -= n;
+        remove_n_line(y + 1, n, doc);
     }
 }
 
@@ -615,14 +610,8 @@ diffstack_redo_line_merge(uint8_t *diff_beg
     } else {
         fst = doc->lines + y;
         snd = fst + n;
-
         merge_lines(fst, snd, doc);
-
-        for (curr = fst + 1; curr != snd + 1; curr++) {
-            free_line(curr, doc);
-        }
-        memcpy(fst + 1, snd + 1, (doc->loaded_size + 1 - n) * sizeof(*fst));
-        doc->loaded_size -= n;
+        remove_n_line(y + 1, n, doc);
     }
 }
 
@@ -789,25 +778,23 @@ reposition_cursor_undo(struct editor *ed
     if (diff_beg == diff_end) {
         return -1;
     }
-CHECK_UNDO_TYPE:
+    if (*diff_beg == DIFF_AGGREGATE) {
+        diff_beg = diffaggr_first_simple(diff_beg);
+        if (diff_beg == NULL) {
+            return -1;
+        } else {
+            diff_end = diffstack_curr_mvforw(diff_beg);
+            seq_beg = diff_beg + DIFF_CHARS_OFF;
+            seq_end = diff_end - 1;
+            diff_size = seq_end - seq_beg;
+        }
+    }
     switch (*diff_beg) {
-        case DIFF_AGGREGATE:
-            diff_beg = diffaggr_first_simple(diff_beg);
-            if (diff_beg == NULL) {
-                break;
-            } else {
-                diff_end = diffstack_curr_mvforw(diff_beg);
-                seq_beg = diff_beg + DIFF_CHARS_OFF;
-                seq_end = diff_end - 1;
-                diff_size = seq_end - seq_beg;
-                goto CHECK_UNDO_TYPE;
-            }
         case DIFF_CHARS_DEL:
             diffchars_unpack(diff_beg, &x, &y);
             line = ed->doc->lines + y;
             ensure(y < ed->doc->loaded_size);
             x = glyphs_in_line_width(line, ed->doc, x - diff_size);
-
             if (is_line_utf8(line, ed->doc)) {
                 x = x + glyphs_in_utf8_revspan(seq_beg, seq_end);
             } else {
@@ -825,7 +812,6 @@ CHECK_UNDO_TYPE:
             line = ed->doc->lines + y;
             ensure(y < ed->doc->loaded_size);
             x = glyphs_in_line_width(line, ed->doc, x);
-
             selv->size = 1;
             selv->focus = selv->data;
             selv->focus->line = y;
@@ -840,7 +826,9 @@ CHECK_UNDO_TYPE:
             selv->focus->glyph_beg = 0;
             selv->focus->glyph_end = 0;
             break;
-
+        default:
+            ensure(0);
+            break;
     }
     return 0;
 }
@@ -1014,6 +1002,9 @@ reposition_cursor_redo(struct editor *ed
 
             selv->focus->glyph_beg = x;
             selv->focus->glyph_end = x;
+            break;
+        default:
+            ensure(0);
             break;
     }
     // TODO add assert focus in bounds

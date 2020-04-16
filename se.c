@@ -1466,6 +1466,22 @@ insert_n_line(size_t x, size_t y, size_t n, struct document **doc) {
 }
 
 void
+remove_n_line(size_t y, size_t n, struct document *doc) {
+    struct line *fst = doc->lines + y;
+    struct line *snd = fst + n;
+    struct line *end = doc->lines + doc->loaded_size + 1;
+    struct line *curr;
+
+    dbg_assert(snd < end);
+
+    for (curr = fst; curr != snd; curr++) {
+        free_line(curr, doc);
+    }
+    memcpy(fst, snd, (end - snd) * sizeof(*fst));
+    doc->loaded_size -= n;
+}
+
+void
 win_dmg_from_lineno(struct window *win, size_t lineno) {
     // lineno is absolute line, so 0 will invalidate all the srollback
     // win_dmg_from_lineno(ed->doc->line_off) does the same thing since that's
