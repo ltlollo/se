@@ -386,12 +386,18 @@ fill_window_mesh(struct window *win, unsigned width, unsigned height) {
     for (i = 0; i < height; i++) {
         x = x_beg;
         for (j = 0; j < width; j++) {
+            // NOTE: the following line was buggy in some cases (driver
+            // issue?), check here if there are texture rendering artifacts.
+#ifndef BUG_ARTIFACTS
+            set_quad_coord(win->window_mesh + i * width + j, x, y, dx, dy);
+#else
             set_quad_coord(win->window_mesh + i * width + j
-                , x - dx * 1/128
-                , y - dy * 1/128
+                ,  x - dx * 1/128
+                ,  y - dy * 1/128
                 , dx + dx * 2/128
                 , dy + dy * 2/128
             );
+#endif
             x += dx;
         }
         y += dy;

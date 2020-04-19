@@ -46,7 +46,7 @@ ext/unifont.cfp: ext/cfp ext/unifont.rfp
 	$(SH) ./ext/cfp ext/unifont.rfp ext/unifont.cfp
 
 ext/unifont.o: ext/unifont.cfp
-	ld -r -b binary ext/unifont.cfp -o ext/unifont.o
+	ld -r -b binary -z noexecstack ext/unifont.cfp -o ext/unifont.o
 
 clean:
 	$(RM) se umap.gen.h se.gen.h ext/rfp ext/cfp ext/umap ext/unifont.cfp \
