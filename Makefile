@@ -5,7 +5,7 @@ RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 -DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
 SRC				:= se.c lex.c diff.c input.c
 
-se: tags $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c ext/unifont.o
+se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c ext/unifont.o
 	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o $(LDFLAGS) -o se
 

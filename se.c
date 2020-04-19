@@ -44,18 +44,23 @@ static struct color *color_selection = colors_table + 7;
 static struct color *color_cursor    = colors_table + 8;
 static struct color *color_focus     = colors_table + 9;
 static struct color *color_default   = colors_table;
-static const char *vs_src = "\n\
-#version 130                 \n\
-in vec4 s_pos;               \n\
-in vec4 s_color;             \n\
-in vec2 s_uv;                \n\
-out vec4 color;              \n\
-out vec2 uv;                 \n\
-void main() {                \n\
-    color = s_color;         \n\
-    uv = s_uv;               \n\
-    gl_Position = s_pos;     \n\
-}                            \n\
+static const char *vs_src = "                   \n\
+#version 130                                    \n\
+in vec4 s_pos;                                  \n\
+in vec4 s_color;                                \n\
+in vec2 s_uv;                                   \n\
+uniform float u_scroll;                         \n\
+out vec4 color;                                 \n\
+out vec2 uv;                                    \n\
+void main() {                                   \n\
+    color = s_color;                            \n\
+    uv = s_uv;                                  \n\
+    gl_Position = vec4(s_pos.x                  \n\
+        , s_pos.y + u_scroll                    \n\
+        , s_pos.z                               \n\
+        , 1.0                                   \n\
+    );                                          \n\
+}                                               \n\
 ";
 static const char *fs_src  = "                  \n\
 #version 130                                    \n\
@@ -117,7 +122,7 @@ window_render(struct window *win, struct gl_data *gl_id) {
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLES, 0, 6 * size);
-    SDL_GL_SwapWindow(gl_id->window);
+    SDL_GL_SwapWindow(gl_id->win);
 }
 
 void
@@ -144,7 +149,7 @@ resize_display_matrix(struct editor *ed
     fill_screen_colors(ed,  0);
 
     glBufferData(GL_ARRAY_BUFFER
-        , (sizeof(struct quad_coord) * 2 + sizeof(struct quad_color)) * size
+        , (sizeof(struct quad_coord) + sizeof(struct quad_vertex)) * size
         , NULL
         , GL_DYNAMIC_DRAW
     );
@@ -155,11 +160,11 @@ resize_display_matrix(struct editor *ed
     );
     gl_buffers_upload(ed->win);
     glVertexAttribPointer(gl_id->pos, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    glVertexAttribPointer(gl_id->uv, 2, GL_FLOAT, GL_FALSE, 0
+    glVertexAttribPointer(gl_id->uv, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 5
         , (void *)(sizeof(struct quad_coord) * size)
     );
-    glVertexAttribPointer(gl_id->col, 3, GL_FLOAT, GL_FALSE, 0
-        , (void *)(sizeof(struct quad_coord) * 2 * size)
+    glVertexAttribPointer(gl_id->col, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 5
+        , (void *)(sizeof(struct quad_coord) * size) + sizeof(float) * 2
     );
 }
 
@@ -329,17 +334,17 @@ window_init(struct gl_data *gl_id, int argc, char **argv) {
     if (err != 0) {
         errx(1, "SDL_Init: %s", SDL_GetError());
     }
-    gl_id->window = SDL_CreateWindow(window_title
+    gl_id->win = SDL_CreateWindow(window_title
         , SDL_WINDOWPOS_UNDEFINED
         , SDL_WINDOWPOS_UNDEFINED
         , 0
         , 0
         , SDL_WINDOW_OPENGL | SDL_WINDOW_MAXIMIZED | SDL_WINDOW_RESIZABLE
     );
-    if (gl_id->window == NULL) {
+    if (gl_id->win == NULL) {
         errx(1, "SDL_CreateWindow: %s", SDL_GetError());
     }
-    gl_id->glcontext = SDL_GL_CreateContext(gl_id->window);
+    gl_id->ctx = SDL_GL_CreateContext(gl_id->win);
     xensure(glewInit() == GLEW_OK);
 
     glClearColor(0.152, 0.156, 0.13, 1.0);
@@ -363,11 +368,35 @@ set_quad_coord(struct quad_coord *q, float x, float y, float dx, float dy) {
 }
 
 void
-set_quad_color(struct quad_color *q, struct color *color) {
+set_quad_vertex_uv(struct quad_vertex *q
+    , float u
+    , float v
+    , float du
+    , float dv
+) {
+    q->vertex[0].u = u;
+    q->vertex[0].v = v;
+    q->vertex[1].u = u;
+    q->vertex[1].v = v + dv;
+    q->vertex[2].u = u + du;
+    q->vertex[2].v = v;
+    q->vertex[3].u = u + du;
+    q->vertex[3].v = v;
+    q->vertex[4].u = u;
+    q->vertex[4].v = v + dv;
+    q->vertex[5].u = u + du;
+    q->vertex[5].v = v + dv;
+}
+
+
+void
+set_quad_vertex_col(struct quad_vertex *q, struct color *color) {
     int i;
 
     for (i = 0; i < 6; i++) {
-        q->vertex_color[i] = *color;
+        q->vertex[i].r = color->r;
+        q->vertex[i].g = color->g;
+        q->vertex[i].b = color->b;
     }
 }
 
@@ -410,9 +439,8 @@ gen_display_matrix(struct window **win, unsigned width, unsigned height) {
     size_t window_area = width * height;
     size_t scrollback_area = width * scrollback;
     size_t window_mesh_sz = sizeof(struct quad_coord) * window_area;
-    size_t glyph_mesh_sz  = sizeof(struct quad_coord) * scrollback_area;
-    size_t font_color_sz  = sizeof(struct quad_color) * scrollback_area;
-    size_t win_mem_sz =  window_mesh_sz + glyph_mesh_sz + font_color_sz;
+    size_t glyph_mesh_sz  = sizeof(struct quad_vertex) * scrollback_area;
+    size_t win_mem_sz =  window_mesh_sz + glyph_mesh_sz;
     struct window *res = reallocflexarr((void **)win
         , sizeof(struct window)
         , win_mem_sz
@@ -425,10 +453,9 @@ gen_display_matrix(struct window **win, unsigned width, unsigned height) {
     res->scrollback_size = scrollback;
     res->scrollback_pos = 0;
     res->window_mesh = (struct quad_coord*)res->data;
-    res->glyph_mesh = res->window_mesh + window_area;
-    res->font_color = (void *)(res->glyph_mesh + scrollback_area);
+    res->glyph_mesh = (struct quad_vertex *)(res->window_mesh + window_area);
     fill_window_mesh(res, width, height);
-    memzero(res->glyph_mesh, 1, glyph_mesh_sz + font_color_sz);
+    memzero(res->glyph_mesh, 1, glyph_mesh_sz);
     return res;
 }
 
@@ -472,6 +499,7 @@ gl_pipeline_init(struct editor *ed, struct gl_data *gl_id) {
     gl_id->pos = glGetAttribLocation(gl_id->prog, "s_pos");
     gl_id->uv = glGetAttribLocation(gl_id->prog, "s_uv");
     gl_id->col = glGetAttribLocation(gl_id->prog, "s_color");
+    gl_id->scroll = glGetUniformLocation(gl_id->prog, "u_scroll");
     xensure(glGetError() == GL_NO_ERROR);
 
     memzero(ed->win, 1, sizeof(struct window));
@@ -480,6 +508,7 @@ gl_pipeline_init(struct editor *ed, struct gl_data *gl_id) {
     glEnableVertexAttribArray(gl_id->pos);
     glEnableVertexAttribArray(gl_id->col);
     glEnableVertexAttribArray(gl_id->uv);
+    glUniform1f(gl_id->scroll, 0.0); 
 
     glEnable(GL_TEXTURE_2D);
     glGenTextures(1, &gl_id->tbo);
@@ -940,7 +969,7 @@ fill_glyph_narrow(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
     uint32_t glyph_x = (glyph >> 0) & 0xff;
     uint32_t glyph_y = (glyph >> 8) & 0xff;
 
-    set_quad_coord(win->glyph_mesh + i * win->width + j
+    set_quad_vertex_uv(win->glyph_mesh + i * win->width + j
         , -d_glyph * .08 + glyph_x * d_glyph + d_glyph * 1/18
         , -d_glyph * .00 + glyph_y * d_glyph + d_glyph * 1/18
         , -d_glyph * .08 + glyph_width  - d_glyph * 1/18
@@ -956,7 +985,7 @@ fill_glyph_wide(unsigned i, unsigned j, uint32_t glyph, struct window *win) {
     uint32_t glyph_x = (glyph >> 0) & 0xff;
     uint32_t glyph_y = (glyph >> 8) & 0xff;
 
-    set_quad_coord(win->glyph_mesh + i * win->width + j
+    set_quad_vertex_uv(win->glyph_mesh + i * win->width + j
         , glyph_x * d_glyph
         , glyph_y * d_glyph
         , glyph_width
@@ -1026,15 +1055,15 @@ fill_line_colors(unsigned i
     unsigned num_glyph = 0;
 
     struct colored_span cw = { .color_pos = 0, .size = 0 };
-    struct quad_color *qc_curr;
+    struct quad_vertex *qc_curr;
 
     if (utf8) {
         while (line_curr != line_end && j != win->width) {
             if (cw.size == 0) {
                 cw = color_span(line_beg, line_curr, line_end);
             }
-            qc_curr = win->font_color + i * win->width + j;
-            set_quad_color(qc_curr, colors_table + cw.color_pos);
+            qc_curr = win->glyph_mesh + i * win->width + j;
+            set_quad_vertex_col(qc_curr, colors_table + cw.color_pos);
             line_curr = next_utf8_char(line_curr);
             dbg_assert(line_curr <= line_end);
             if (num_glyph++ < from_glyph) {
@@ -1046,14 +1075,14 @@ fill_line_colors(unsigned i
     } else {
         line_curr = min(line_curr + from_glyph, line_end);
         while (line_curr != line_end && j != win->width) {
-            qc_curr = win->font_color + i * win->width + j;
-            set_quad_color(qc_curr, color_default);
+            qc_curr = win->glyph_mesh + i * win->width + j;
+            set_quad_vertex_col(qc_curr, color_default);
             j++;
         }
     }
     while (j < win->width) {
-        qc_curr = win->font_color + i * win->width + j;
-        set_quad_color(qc_curr, color_default);
+        qc_curr = win->glyph_mesh + i * win->width + j;
+        set_quad_vertex_col(qc_curr, color_default);
         j++;
     }
 }
@@ -1224,7 +1253,7 @@ fill_screen_colors(struct editor *ed, unsigned line) {
     size_t win_lines = doc->loaded_size - doc->line_off;
     struct selection *sel_beg = ed->selv->data;
     struct selection *sel_end = ed->selv->data + ed->selv->size;
-    struct quad_color *qc_curr;
+    struct quad_vertex *qc_curr;
     unsigned ic;
     unsigned jc;
     unsigned i;
@@ -1253,8 +1282,8 @@ fill_screen_colors(struct editor *ed, unsigned line) {
     }
     for (; i < win->scrollback_size; i++) {
         for (j = 0; j < win->width; j++) {
-            qc_curr = win->font_color + i * win->width + j;
-            set_quad_color(qc_curr, color_default);
+            qc_curr = win->glyph_mesh + i * win->width + j;
+            set_quad_vertex_col(qc_curr, color_default);
         }
     }
     while (sel_beg != sel_end && sel_beg->line < doc->line_off) {
@@ -1265,14 +1294,14 @@ fill_screen_colors(struct editor *ed, unsigned line) {
     ) {
         ic = sel_beg->line - doc->line_off;
         for (jc = sel_beg->glyph_beg; jc < sel_beg->glyph_end; jc++) {
-            qc_curr = win->font_color + ic * win->width + jc - doc->glyph_off;
+            qc_curr = win->glyph_mesh + ic * win->width + jc - doc->glyph_off;
             if (jc >= doc->glyph_off && jc < doc->glyph_off + win->width){
-                set_quad_color(qc_curr, color_selection);
+                set_quad_vertex_col(qc_curr, color_selection);
             }
         }
-        qc_curr = win->font_color + ic * win->width + jc - doc->glyph_off;
+        qc_curr = win->glyph_mesh + ic * win->width + jc - doc->glyph_off;
         if (jc >= doc->glyph_off && jc < doc->glyph_off + win->width){
-            set_quad_color(qc_curr, sel_beg == ed->selv->focus
+            set_quad_vertex_col(qc_curr, sel_beg == ed->selv->focus
                 ? color_focus
                 : color_cursor
             );
@@ -1360,13 +1389,8 @@ gl_buffers_upload(struct window *win) {
 
     glBufferSubData(GL_ARRAY_BUFFER
         , sizeof(struct quad_coord) * size
-        , sizeof(struct quad_coord) * size
+        , sizeof(struct quad_vertex) * size
         , win->glyph_mesh + win->scrollback_pos * win->width
-    );
-    glBufferSubData(GL_ARRAY_BUFFER
-        , sizeof(struct quad_coord) * 2 * size
-        , sizeof(struct quad_color) * size
-        , win->font_color + win->scrollback_pos * win->width
     );
 }
 

@@ -20,8 +20,8 @@
 typedef int(*class_fn)(uint32_t);
 
 struct gl_data {
-    SDL_Window *window;
-    SDL_GLContext glcontext;
+    SDL_Window *win;
+    SDL_GLContext ctx;
     GLuint vao;
     GLuint tbo;
     GLuint vbo;
@@ -30,6 +30,7 @@ struct gl_data {
     GLuint pos;
     GLuint uv;
     GLuint tex;
+    GLuint scroll;
 };
 
 struct coord {
@@ -43,12 +44,20 @@ struct color {
     GLfloat g;
 };
 
+struct vertex {
+    GLfloat u;
+    GLfloat v;
+    GLfloat r;
+    GLfloat b;
+    GLfloat g;
+};
+
 struct quad_coord {
     struct coord vertex_pos[6];
 };
 
-struct quad_color {
-    struct color vertex_color[6];
+struct quad_vertex {
+    struct vertex vertex[6];
 };
 
 struct window {
@@ -59,8 +68,7 @@ struct window {
     unsigned dmg_scrollback_beg;
     unsigned dmg_scrollback_end;
     struct quad_coord *window_mesh;
-    struct quad_coord *glyph_mesh;
-    struct quad_color *font_color;
+    struct quad_vertex *glyph_mesh;
     char data[];
 };
 
