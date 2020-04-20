@@ -144,9 +144,9 @@ resize_display_matrix(struct editor *ed
     ed->win->scrollback_pos = 0;
     ed->doc->line_off = 0;
     ed->doc->glyph_off = 0;
-    fill_screen_glyphs(ed, 0);
+    fill_screen_glyphs(ed);
     screen_reposition(ed);
-    fill_screen_colors(ed,  0);
+    fill_screen_colors(ed);
 
     glBufferData(GL_ARRAY_BUFFER
         , sizeof(struct quad_vertex) * size * 2
@@ -1189,19 +1189,20 @@ sync_width_or_null(struct line *line, size_t width, struct document *doc) {
 }
 
 void
-fill_screen(struct editor *ed, unsigned i) {
-    fill_screen_glyphs(ed, i);
-    fill_screen_colors(ed, i);
+fill_screen(struct editor *ed) {
+    fill_screen_glyphs(ed);
+    fill_screen_colors(ed);
 }
 
 void
-fill_screen_glyphs(struct editor *ed, unsigned i) {
+fill_screen_glyphs(struct editor *ed) {
     struct document *doc = ed->doc;
     struct window *win = ed->win;
     struct line *line_beg = doc->lines + doc->line_off;
     struct line *line_end = doc->lines + doc->loaded_size;
     size_t win_lines = doc->loaded_size - doc->line_off;
     unsigned j;
+    unsigned i;
 
     ensure(line_beg <= line_end);
 
@@ -1214,7 +1215,7 @@ fill_screen_glyphs(struct editor *ed, unsigned i) {
         line_end = doc->lines + doc->loaded_size;
         win_lines = doc->loaded_size - doc->line_off;
     }
-    for (; i < min(win_lines, win->scrollback_size); i++) {
+    for (i = 0; i < min(win_lines, win->scrollback_size); i++) {
         if (doc->line_off + i < ed->win->dmg_scrollback_beg
             || doc->line_off + i > ed->win->dmg_scrollback_end
         ) {
@@ -1237,7 +1238,7 @@ fill_screen_glyphs(struct editor *ed, unsigned i) {
 }
 
 void
-fill_screen_colors(struct editor *ed, unsigned line) {
+fill_screen_colors(struct editor *ed) {
     struct document *doc = ed->doc;
     struct window *win = ed->win;
     struct line *line_beg = doc->lines + doc->line_off;
@@ -1258,7 +1259,7 @@ fill_screen_colors(struct editor *ed, unsigned line) {
     }
     dbg_assert(!(win_lines < win->scrollback_size && !is_fully_loaded(doc)));
 
-    for (i = line; i < min(win_lines, win->scrollback_size); i++) {
+    for (i = 0; i < min(win_lines, win->scrollback_size); i++) {
         if (doc->line_off + i < ed->win->dmg_scrollback_beg
             || doc->line_off + i > ed->win->dmg_scrollback_end
         ) {
@@ -1529,10 +1530,12 @@ win_dmg_calc(struct window *win, struct selectarr *selv) {
     win->dmg_scrollback_beg = ~0;
     win->dmg_scrollback_end =  0;
 
+    // NOTE: This is overcautious, every case is handled aside of
+    // key_move_input, so implement screen damage for that.
     for (struct selection *s = selv->data; s < selv->data + selv->size; s++) {
         size_t prev_line = s->line == 0 ? 0 : s->line - 1;
         win->dmg_scrollback_beg = min(prev_line, win->dmg_scrollback_beg);
-        win->dmg_scrollback_end = max(s->line + 1, win->dmg_scrollback_end);
+        win->dmg_scrollback_end = max(s->line + 2, win->dmg_scrollback_end);
     }
 }
 
@@ -1599,6 +1602,8 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
                     );
                 }
                 break;
+            default:
+                continue;
         }
         trampoline = ed->doc->lines + ed->doc->loaded_size;
         dbg_assert(trampoline->ptr
@@ -1606,8 +1611,8 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
         );
         cursors_reposition(ed->selv, ed->doc);
         screen_reposition(ed);
-        fill_screen(ed, 0);
-        gl_buffers_upload(ed);
+        fill_screen(ed);
+        gl_buffers_upload_dmg(ed);
         glUniform1f(gl_id->scroll
             , 2.0 / ed->win->height * ed->win->scrollback_pos
         ); 
