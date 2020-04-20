@@ -121,7 +121,7 @@ window_render(struct window *win, struct gl_data *gl_id) {
     unsigned size = window_area(win);
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glDrawArrays(GL_TRIANGLES, 0, 6 * size);
+    glDrawArrays(GL_TRIANGLES, 0, 6 * size * 2);
     SDL_GL_SwapWindow(gl_id->win);
 }
 
@@ -149,22 +149,19 @@ resize_display_matrix(struct editor *ed
     fill_screen_colors(ed,  0);
 
     glBufferData(GL_ARRAY_BUFFER
-        , (sizeof(struct quad_coord) + sizeof(struct quad_vertex)) * size
+        , sizeof(struct quad_vertex) * size * 2
         , NULL
         , GL_DYNAMIC_DRAW
     );
-    glBufferSubData(GL_ARRAY_BUFFER
-        , 0
-        , sizeof(struct quad_coord) * size
-        , ed->win->window_mesh
-    );
     gl_buffers_upload(ed->win);
-    glVertexAttribPointer(gl_id->pos, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    glVertexAttribPointer(gl_id->uv, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 5
-        , (void *)(sizeof(struct quad_coord) * size)
+    glVertexAttribPointer(gl_id->pos, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 7
+        , 0
     );
-    glVertexAttribPointer(gl_id->col, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 5
-        , (void *)(sizeof(struct quad_coord) * size) + sizeof(float) * 2
+    glVertexAttribPointer(gl_id->uv, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 7
+        , (void *)(sizeof(float) * 2)
+    );
+    glVertexAttribPointer(gl_id->col, 3, GL_FLOAT, GL_FALSE, sizeof(float) * 7
+        , (void *)(sizeof(float) * 4)
     );
 }
 
@@ -352,19 +349,19 @@ window_init(struct gl_data *gl_id, int argc, char **argv) {
 }
 
 void
-set_quad_coord(struct quad_coord *q, float x, float y, float dx, float dy) {
-    q->vertex_pos[0].x = x;
-    q->vertex_pos[0].y = y;
-    q->vertex_pos[1].x = x;
-    q->vertex_pos[1].y = y + dy;
-    q->vertex_pos[2].x = x + dx;
-    q->vertex_pos[2].y = y;
-    q->vertex_pos[3].x = x + dx;
-    q->vertex_pos[3].y = y;
-    q->vertex_pos[4].x = x;
-    q->vertex_pos[4].y = y + dy;
-    q->vertex_pos[5].x = x + dx;
-    q->vertex_pos[5].y = y + dy;
+set_quad_coord(struct quad_vertex *q, float x, float y, float dx, float dy) {
+    q->vertex[0].x = x;
+    q->vertex[0].y = y;
+    q->vertex[1].x = x;
+    q->vertex[1].y = y + dy;
+    q->vertex[2].x = x + dx;
+    q->vertex[2].y = y;
+    q->vertex[3].x = x + dx;
+    q->vertex[3].y = y;
+    q->vertex[4].x = x;
+    q->vertex[4].y = y + dy;
+    q->vertex[5].x = x + dx;
+    q->vertex[5].y = y + dy;
 }
 
 void
@@ -412,15 +409,16 @@ fill_window_mesh(struct window *win, unsigned width, unsigned height) {
     unsigned j;
 
     y = y_beg;
-    for (i = 0; i < height; i++) {
+    // TODO: cleanup
+    for (i = 0; i < height * 2; i++) {
         x = x_beg;
         for (j = 0; j < width; j++) {
             // NOTE: the following line was buggy in some cases (driver
             // issue?), check here if there are texture rendering artifacts.
 #ifndef BUG_ARTIFACTS
-            set_quad_coord(win->window_mesh + i * width + j, x, y, dx, dy);
+            set_quad_coord(win->glyph_mesh + i * width + j, x, y, dx, dy);
 #else
-            set_quad_coord(win->window_mesh + i * width + j
+            set_quad_coord(win->glyph_mesh + i * width + j
                 ,  x - dx * 1/128
                 ,  y - dy * 1/128
                 , dx + dx * 2/128
@@ -436,15 +434,11 @@ fill_window_mesh(struct window *win, unsigned width, unsigned height) {
 struct window*
 gen_display_matrix(struct window **win, unsigned width, unsigned height) {
     size_t scrollback = 2 * height;
-    size_t window_area = width * height;
     size_t scrollback_area = width * scrollback;
-    size_t window_mesh_sz = sizeof(struct quad_coord) * window_area;
-    size_t glyph_mesh_sz  = sizeof(struct quad_vertex) * scrollback_area;
-    size_t win_mem_sz =  window_mesh_sz + glyph_mesh_sz;
     struct window *res = reallocflexarr((void **)win
         , sizeof(struct window)
-        , win_mem_sz
-        , 1
+        , sizeof(struct quad_vertex)
+        , scrollback_area
     );
     ensure(res);
 
@@ -452,10 +446,8 @@ gen_display_matrix(struct window **win, unsigned width, unsigned height) {
     res->height = height;
     res->scrollback_size = scrollback;
     res->scrollback_pos = 0;
-    res->window_mesh = (struct quad_coord*)res->data;
-    res->glyph_mesh = (struct quad_vertex *)(res->window_mesh + window_area);
+    res->glyph_mesh = (struct quad_vertex *)(res->data);
     fill_window_mesh(res, width, height);
-    memzero(res->glyph_mesh, 1, glyph_mesh_sz);
     return res;
 }
 
@@ -1332,7 +1324,6 @@ void
 move_scrollback_up(struct editor *ed) {
     struct document *doc = ed->doc;
     struct window *win = ed->win;
-    size_t size = window_area(win);
 
     if (win->scrollback_pos > 0) {
         win->scrollback_pos--;
@@ -1346,10 +1337,6 @@ move_scrollback_up(struct editor *ed) {
     doc->line_off -= win->height;
     win->scrollback_pos = win->height - 1;
 
-    memcpy(win->glyph_mesh + size
-        , win->glyph_mesh
-        , size * sizeof(struct quad_coord)
-    );
     win_dmg_from_lineno(ed->win, 0);
 }
 
@@ -1359,7 +1346,6 @@ move_scrollback_down(struct editor *ed) {
     struct window *win = ed->win;
     struct line *line = doc->lines + doc->line_off;
     struct line *line_end = doc->lines + doc->loaded_size;
-    size_t size = window_area(win);
 
     if (win->scrollback_pos + win->height < win->scrollback_size) {
         win->scrollback_pos++;
@@ -1376,23 +1362,41 @@ move_scrollback_down(struct editor *ed) {
     win->scrollback_pos = 1;
     doc->line_off += win->height;
 
-    memcpy(win->glyph_mesh
-        , win->glyph_mesh + size
-        , size * sizeof(struct quad_coord)
-    );
     win_dmg_from_lineno(ed->win, 0);
 }
 
 void
 gl_buffers_upload(struct window *win) {
-    size_t size = window_area(win);
+    size_t size = win->scrollback_size * win->width;
 
     glBufferSubData(GL_ARRAY_BUFFER
-        , sizeof(struct quad_coord) * size
+        , 0
         , sizeof(struct quad_vertex) * size
-        , win->glyph_mesh + win->scrollback_pos * win->width
+        , win->glyph_mesh
     );
 }
+
+
+void
+gl_buffers_upload_dmg(struct editor *ed) {
+    struct window *win = ed->win;
+    struct document *doc = ed->doc;
+    size_t dmg_beg = win->dmg_scrollback_beg;
+    size_t dmg_end = win->dmg_scrollback_end;
+    size_t scrollback_beg = doc->line_off;
+    size_t scrollback_end = doc->line_off + win->scrollback_size;
+
+    size_t dmg_isect_beg = max(scrollback_beg, dmg_beg) - scrollback_beg;
+    size_t dmg_isect_end = min(scrollback_end, dmg_end) - scrollback_beg;
+    size_t dmg_isect_size = dmg_isect_end - dmg_isect_beg;
+
+    glBufferSubData(GL_ARRAY_BUFFER
+        , 0
+        , sizeof(struct quad_vertex) * (dmg_isect_size * win->width)
+        , win->glyph_mesh + dmg_isect_beg * win->width
+    );
+}
+
 
 void
 move_scrollback(struct editor *ed, enum MV_VERT_DIRECTION vdir, size_t times) {
@@ -1603,6 +1607,9 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
         screen_reposition(ed);
         fill_screen(ed, 0);
         gl_buffers_upload(ed->win);
+        glUniform1f(gl_id->scroll
+            , 2.0 / ed->win->height * ed->win->scrollback_pos
+        ); 
         window_render(ed->win, gl_id);
     }
 }

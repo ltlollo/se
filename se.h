@@ -33,11 +33,6 @@ struct gl_data {
     GLuint scroll;
 };
 
-struct coord {
-    GLfloat x;
-    GLfloat y;
-};
-
 struct color {
     GLfloat r;
     GLfloat b;
@@ -45,15 +40,13 @@ struct color {
 };
 
 struct vertex {
+    GLfloat x;
+    GLfloat y;
     GLfloat u;
     GLfloat v;
     GLfloat r;
     GLfloat b;
     GLfloat g;
-};
-
-struct quad_coord {
-    struct coord vertex_pos[6];
 };
 
 struct quad_vertex {
@@ -67,7 +60,6 @@ struct window {
     unsigned scrollback_pos;
     unsigned dmg_scrollback_beg;
     unsigned dmg_scrollback_end;
-    struct quad_coord *window_mesh;
     struct quad_vertex *glyph_mesh;
     char data[];
 };
