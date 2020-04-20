@@ -153,7 +153,7 @@ resize_display_matrix(struct editor *ed
         , NULL
         , GL_DYNAMIC_DRAW
     );
-    gl_buffers_upload(ed->win);
+    gl_buffers_upload(ed);
     glVertexAttribPointer(gl_id->pos, 2, GL_FLOAT, GL_FALSE, sizeof(float) * 7
         , 0
     );
@@ -1366,13 +1366,13 @@ move_scrollback_down(struct editor *ed) {
 }
 
 void
-gl_buffers_upload(struct window *win) {
-    size_t size = win->scrollback_size * win->width;
+gl_buffers_upload(struct editor *ed) {
+    size_t size = ed->win->scrollback_size * ed->win->width;
 
     glBufferSubData(GL_ARRAY_BUFFER
         , 0
         , sizeof(struct quad_vertex) * size
-        , win->glyph_mesh
+        , ed->win->glyph_mesh
     );
 }
 
@@ -1391,7 +1391,7 @@ gl_buffers_upload_dmg(struct editor *ed) {
     size_t dmg_isect_size = dmg_isect_end - dmg_isect_beg;
 
     glBufferSubData(GL_ARRAY_BUFFER
-        , 0
+        , sizeof(struct quad_vertex) * dmg_isect_beg * win->width
         , sizeof(struct quad_vertex) * (dmg_isect_size * win->width)
         , win->glyph_mesh + dmg_isect_beg * win->width
     );
@@ -1530,8 +1530,9 @@ win_dmg_calc(struct window *win, struct selectarr *selv) {
     win->dmg_scrollback_end =  0;
 
     for (struct selection *s = selv->data; s < selv->data + selv->size; s++) {
-        win->dmg_scrollback_beg = min(s->line, win->dmg_scrollback_beg);
-        win->dmg_scrollback_end = max(s->line, win->dmg_scrollback_end);
+        size_t prev_line = s->line == 0 ? 0 : s->line - 1;
+        win->dmg_scrollback_beg = min(prev_line, win->dmg_scrollback_beg);
+        win->dmg_scrollback_end = max(s->line + 1, win->dmg_scrollback_end);
     }
 }
 
@@ -1606,7 +1607,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
         cursors_reposition(ed->selv, ed->doc);
         screen_reposition(ed);
         fill_screen(ed, 0);
-        gl_buffers_upload(ed->win);
+        gl_buffers_upload(ed);
         glUniform1f(gl_id->scroll
             , 2.0 / ed->win->height * ed->win->scrollback_pos
         ); 

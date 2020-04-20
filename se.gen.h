@@ -59,7 +59,7 @@ uint8_t * end_line(struct line *, struct document *);
 size_t window_area(struct window *);
 void move_scrollback_up(struct editor *);
 void move_scrollback_down(struct editor *);
-void gl_buffers_upload(struct window *);
+void gl_buffers_upload(struct editor *);
 void gl_buffers_upload_dmg(struct editor *);
 void move_scrollback(struct editor *, enum MV_VERT_DIRECTION, size_t);
 struct extern_line * convert_line_external(struct line *, struct document *);
