@@ -482,7 +482,7 @@ vkcreate(struct vkstate *vks, size_t width, size_t height) {
         .polygonMode = VK_POLYGON_MODE_FILL,
         .lineWidth = 1.0,
         .cullMode = VK_CULL_MODE_BACK_BIT,
-        .frontFace = VK_FRONT_FACE_CLOCKWISE,
+        .frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
         .depthBiasEnable = VK_FALSE,
     };
     VkPipelineMultisampleStateCreateInfo multisample_info = {
@@ -679,7 +679,7 @@ vkcreate(struct vkstate *vks, size_t width, size_t height) {
     ));
 
     VkClearValue clear_color = {
-        .color.float32 = { 0., 0., 0., 1., },
+        .color.float32 = { 0.152, 0.156, 0.13, 1., },
     };
     for (size_t i = 0; i < vks->swapchain_image_count; i++) {
         VkCommandBufferBeginInfo begin_info = {

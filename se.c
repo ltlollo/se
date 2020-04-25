@@ -152,7 +152,7 @@ vk_window_render(struct window *win, struct vkstate *vks) {
         .pSwapchains = &vks->swapchain,
         .pImageIndices = &image_idx,
     };
-    struct ubotype val = { 0 };
+    struct ubotype val = { .move = 2.0 / win->height * win->scrollback_pos, };
 
     int err = vkAcquireNextImageKHR(vks->device, vks->swapchain, ~0ull,
         vks->image_sem, VK_NULL_HANDLE, &image_idx
@@ -433,7 +433,6 @@ window_init(struct gl_data *gl_id, int argc, char **argv) {
 int
 vk_window_init(struct vkstate *vks, int argc, char **argv) {
     static char window_title[128];
-    int err;
 
     str_intercalate(window_title, sizeof(window_title) - 1, argv, argc, ' '); 
 
@@ -446,8 +445,8 @@ vk_window_init(struct vkstate *vks, int argc, char **argv) {
     );
     vkinit(vks, vks->win, debug_callback);
 
-    unsigned win_width_px = 0;
-    unsigned win_height_px = 0;
+    //unsigned win_width_px = 0;
+    //unsigned win_height_px = 0;
     void *font_data = malloc(0x1440000);
     struct mmap_file file;
     struct rfp_file *rfp;
@@ -461,8 +460,7 @@ vk_window_init(struct vkstate *vks, int argc, char **argv) {
     vkcreate(vks, 0, 0);
     vkupdatexcmd(vks, 0x1200, 0x1200);
 
-    // TODO: free font_data
-
+    free(font_data);
     return 0;
 }
 
@@ -527,22 +525,11 @@ fill_window_mesh(struct window *win, unsigned width, unsigned height) {
     unsigned j;
 
     y = y_beg;
-    // TODO: cleanup
+    // TODO: cleanup *2 for scrollback size
     for (i = 0; i < height * 2; i++) {
         x = x_beg;
         for (j = 0; j < width; j++) {
-            // NOTE: the following line was buggy in some cases (driver
-            // issue?), check here if there are texture rendering artifacts.
-#ifndef BUG_ARTIFACTS
             set_quad_coord(win->glyph_mesh + i * width + j, x, y, dx, dy);
-#else
-            set_quad_coord(win->glyph_mesh + i * width + j
-                ,  x - dx * 1/128
-                ,  y - dy * 1/128
-                , dx + dx * 2/128
-                , dy + dy * 2/128
-            );
-#endif
             x += dx;
         }
         y += dy;
