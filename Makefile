@@ -1,13 +1,20 @@
-LDFLAGS			+= -lGL -lGLEW -lGLU -lSDL2
-CFLAGS			:= -std=c11  -Wall -Wextra -Wno-pointer-sign -fPIC
+VK_INCLUDE 		:= "${HOME}/opt/vulkan/1.2.135.0/x86_64/include"
+VK_LIB 			:= "${HOME}/opt/vulkan/1.2.135.0/x86_64/lib"
+VK_BIN 			:= "${HOME}/opt/vulkan/1.2.135.0/x86_64/bin"
+LDFLAGS			+= -L $(VK_LIB) -lGL -lGLEW -lGLU -lSDL2 -lvulkan
+CFLAGS			:= -I $(VK_INCLUDE) -std=c11  -Wall -Wextra -Wno-pointer-sign \
+	-fPIC
 DEBUG_CFLAGS	:= ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
 RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 -DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
 SRC				:= se.c lex.c diff.c input.c
 
-se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c ext/unifont.o
+
+se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c \
+	ext/unifont.o ext/vert.o ext/frag.o vk.c vkhelp.c
 	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o $(LDFLAGS) -o se
+		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o ext/vert.o \
+		ext/frag.o $(LDFLAGS) -o se
 
 se.gen.h: $(SRC)
 	$(SH) ./ext/gen_headers $(SRC) > se.gen.h
@@ -50,10 +57,25 @@ ext/unifont.o: ext/unifont.cfp
 
 clean:
 	$(RM) se umap.gen.h se.gen.h ext/rfp ext/cfp ext/umap ext/unifont.cfp \
-		unifont.rfp ext/unifont.o asm/*.s
+		ext/unifont.rfp ext/unifont.o asm/*.s ext/*.o ext/*.spv
 
 perf:
 	gprof2dot -f callgrind -o callgrind.dot callgrind.out
 	gprof2dot -f perf -o perf.dot perf.data
+
+ext/vert.spv: shader.vert
+	$(VK_BIN)/glslangValidator -V shader.vert -o ext/vert.spv
+
+ext/frag.spv: shader.frag
+	$(VK_BIN)/glslangValidator -V shader.frag -o ext/frag.spv
+
+ext/vert.o: ext/vert.spv
+	ld -r -b binary -z noexecstack ext/vert.spv -o ext/vert.o
+
+ext/frag.o: ext/frag.spv
+	ld -r -b binary -z noexecstack ext/frag.spv -o ext/frag.o
+
+run: se
+	LD_LIBRARY_PATH=$(VK_LIB) ./se
 
 .PHONY: clean

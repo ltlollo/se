@@ -25,12 +25,15 @@
 #include "comp.h"
 #include "se.h"
 #include "ilog.h"
+#include "vk.c"
 
 #include "se.gen.h"
 #include "umap.gen.h"
 
 #include "color.def.h"
 #include "class.def.h"
+
+
 
 #define D_GLYPH     (1.0f / 256)
 #define H_GLYPH_PX  (12)
@@ -126,6 +129,66 @@ window_render(struct window *win, struct gl_data *gl_id) {
 }
 
 void
+vk_window_render(struct window *win, struct vkstate *vks) {
+    uint32_t image_idx;
+
+    VkPipelineStageFlags stages = {
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    };
+    VkSubmitInfo submit_info = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &vks->image_sem,
+        .pWaitDstStageMask = &stages,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &vks->render_sem,
+        .commandBufferCount = 1,
+    };
+    VkPresentInfoKHR present_info = {
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &vks->render_sem,
+        .swapchainCount = 1,
+        .pSwapchains = &vks->swapchain,
+        .pImageIndices = &image_idx,
+    };
+    struct ubotype val = { 0 };
+
+    int err = vkAcquireNextImageKHR(vks->device, vks->swapchain, ~0ull,
+        vks->image_sem, VK_NULL_HANDLE, &image_idx
+    );
+    switch (err) {
+        case VK_ERROR_OUT_OF_DATE_KHR:
+            warnx("VK_ERROR_OUT_OF_DATE_KHR");
+            vkdelete(vks);
+            vkcreate(vks, win->width, win->height);
+            err = vkAcquireNextImageKHR(vks->device, vks->swapchain, ~0ull,
+                vks->image_sem, VK_NULL_HANDLE, &image_idx
+            );
+            break;
+        case VK_SUBOPTIMAL_KHR:
+            warnx("VK_SUBOPTIMAL_KHR");
+            break;
+        default:
+            xvkerr(err);
+    }
+
+    vk_update_ubo(vks->device, vks->ubo_mem[image_idx], &val);
+    void* data;
+
+    size_t size = sizeof(struct quad_vertex) * win->width * win->scrollback_size;
+    vkMapMemory(vks->device, vks->vertex_mem, 0, size, 0, &data);
+    memcpy(data, win->glyph_mesh, size);
+    vkUnmapMemory(vks->device, vks->vertex_mem);
+
+    submit_info.pCommandBuffers = vks->command_buffers + image_idx;
+    xvkerr(vkQueueSubmit(vks->graphics_queue, 1, &submit_info,
+            VK_NULL_HANDLE
+    ));
+    vkQueuePresentKHR(vks->graphics_queue, &present_info);
+}
+
+void
 resize_display_matrix(struct editor *ed
     , struct gl_data *gl_id
     , int win_width_px
@@ -171,8 +234,26 @@ window_resize(struct editor *ed
     , int win_width_px
     , int win_height_px
     ) {
-    glViewport(0, 0, win_width_px, win_height_px);
+    // TODO: this should not be needed
+    //glViewport(0, 0, win_width_px, win_height_px);
     resize_display_matrix(ed, gl_id, win_width_px, win_height_px);
+}
+
+void
+vk_window_resize(struct editor *ed
+    , struct vkstate *vks
+    , int win_width_px
+    , int win_height_px
+) {
+    unsigned win_width = win_width_px / H_GLYPH_PX;
+    unsigned win_height = win_height_px / V_GLYPH_PX;
+    unsigned size = win_width * win_height;
+
+    vks->w = win_width_px, vks->h = win_height_px;
+    warnx("SDL_WINDOWEVENT_RESIZED: %dx%d", vks->w, vks->h);
+
+    vkdelete(vks);
+    vkcreate(vks, win_width, win_height);
 }
 
 struct selectarr *
@@ -345,6 +426,43 @@ window_init(struct gl_data *gl_id, int argc, char **argv) {
     xensure(glewInit() == GLEW_OK);
 
     glClearColor(0.152, 0.156, 0.13, 1.0);
+    return 0;
+}
+
+
+int
+vk_window_init(struct vkstate *vks, int argc, char **argv) {
+    static char window_title[128];
+    int err;
+
+    str_intercalate(window_title, sizeof(window_title) - 1, argv, argc, ' '); 
+
+    vks->w = 800;
+    vks->h = 600;
+    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
+    vks->win = SDL_CreateWindow(window_title, 0, 0, vks->w, vks->h
+        , SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_MAXIMIZED
+        | SDL_WINDOW_RESIZABLE
+    );
+    vkinit(vks, vks->win, debug_callback);
+
+    unsigned win_width_px = 0;
+    unsigned win_height_px = 0;
+    void *font_data = malloc(0x1440000);
+    struct mmap_file file;
+    struct rfp_file *rfp;
+
+    xensure(font_data);
+    xensure(load_font("unifont.cfp", &file) == 0);
+    rfp = load_cfp_file(&file);
+    rfp_decompress(rfp, font_data);
+
+    vkmktex(vks, font_data, 0x1200, 0x1200);
+    vkcreate(vks, 0, 0);
+    vkupdatexcmd(vks, 0x1200, 0x1200);
+
+    // TODO: free font_data
+
     return 0;
 }
 
@@ -1540,7 +1658,7 @@ win_dmg_calc(struct window *win, struct selectarr *selv) {
 }
 
 void
-render_loop(struct editor *ed, struct gl_data *gl_id) {
+render_loop(struct editor *ed, struct gl_data *gl_id, struct vkstate *vks) {
     int key;
     int mod;
     SDL_Event event;
@@ -1600,6 +1718,11 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
                         , event.window.data1
                         , event.window.data2
                     );
+                    vk_window_resize(ed
+                        , vks
+                        , event.window.data1
+                        , event.window.data2
+                    );
                 }
                 break;
             default:
@@ -1617,6 +1740,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id) {
             , 2.0 / ed->win->height * ed->win->scrollback_pos
         ); 
         window_render(ed->win, gl_id);
+        vk_window_render(ed->win, vks);
     }
 }
 
@@ -1658,13 +1782,17 @@ main(int argc, char *argv[]) {
     char *fname = "se.c";
     static struct gl_data gl_id;
     static struct editor ed;
+    static struct vkstate vks;
 
     if (argc - 1 > 0) {
         fname = argv[1];
     }
     xensure(init_editor(&ed, fname) == 0);
     xensure(window_init(&gl_id, argc, argv) == 0);
+
+    xensure(vk_window_init(&vks, argc, argv) == 0);
+
     xensure(gl_pipeline_init(&ed, &gl_id) == 0);
-    render_loop(&ed, &gl_id);
+    render_loop(&ed, &gl_id, &vks);
     return 0;
 }
