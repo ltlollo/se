@@ -13,8 +13,8 @@ SRC				:= se.c lex.c diff.c input.c vk.c
 se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c \
 	ext/unifont.o ext/vert.o ext/frag.o
 	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o ext/vert.o \
-		ext/frag.o $(LDFLAGS) -o se
+		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o ./ext/vert.o \
+		./ext/frag.o $(LDFLAGS) -o se
 
 se.gen.h: $(SRC)
 	$(SH) ./ext/gen_headers $(SRC) > se.gen.h
@@ -24,7 +24,8 @@ tags: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c
 
 release: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c ext/unifont.o
 	$(CC) -DNDEBUG -DLINK_FONT -D_GNU_SOURCE $(RELEASE_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c ilog.c ext/unifont.o $(LDFLAGS) -o se
+		se.c lex.c util.c fio.c comp.c ilog.c ext/unifont.o ./ext/vert.o \
+		./ext/frag.o $(LDFLAGS) -o se
 
 asm/%.s: %.c
 	mkdir -p asm
