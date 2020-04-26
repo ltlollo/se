@@ -1023,8 +1023,6 @@ diffstack_undo(struct editor *ed) {
     if (diff_beg == diff_end) {
         return -1;
     }
-    reposition_cursor_undo(ed, diff_beg, diff_end);
-
     switch (*diff_beg) {
         case DIFF_CHARS_ADD:
             diffstack_undo_chars_add(diff_beg, diff_end, doc);
@@ -1044,6 +1042,8 @@ diffstack_undo(struct editor *ed) {
         default:
             ensure(0);
     }
+    reposition_cursor_undo(ed, diff_beg, diff_end);
+
     if (ds->curr_checkpoint_beg != 0) {
         diff_end = diff_beg;
         diff_beg = diffstack_curr_mvback(diff_end);

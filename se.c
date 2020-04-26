@@ -1681,99 +1681,144 @@ win_dmg_from_lineno(struct window *win, size_t lineno) {
 
 void
 win_dmg_calc(struct window *win, struct selectarr *selv) {
-    win->dmg_scrollback_beg = ~0;
-    win->dmg_scrollback_end =  0;
-
-    // NOTE: This is overcautious, every case is handled aside of
-    // key_move_input, so implement screen damage for that.
     for (struct selection *s = selv->data; s < selv->data + selv->size; s++) {
-        size_t prev_line = s->line == 0 ? 0 : s->line - 1;
-        win->dmg_scrollback_beg = min(prev_line, win->dmg_scrollback_beg);
-        win->dmg_scrollback_end = max(s->line + 2, win->dmg_scrollback_end);
+        win->dmg_scrollback_beg = min(s->line, win->dmg_scrollback_beg);
+        win->dmg_scrollback_end = max(s->line + 1, win->dmg_scrollback_end);
     }
 }
 
 void
-render_loop(struct editor *ed, struct gl_data *gl_id, struct vkstate *vks) {
+handle_event(struct editor *ed
+    , SDL_Event *event
+    , struct gl_data *gl_id
+    , struct vkstate *vks
+    ) {
     int key;
     int mod;
-    SDL_Event event;
     struct line *trampoline;
+
+    if (event->type != SDL_WINDOWEVENT) {
+        dbg(ilog_push(event));
+    }
+
+    ed->win->dmg_scrollback_beg = ~0;
+    ed->win->dmg_scrollback_end =  0;
+
+    win_dmg_calc(ed->win, ed->selv);
+
+    key = event->key.keysym.sym;
+    mod = event->key.keysym.mod;
+    switch(event->type) {
+        case SDL_KEYDOWN:
+            if (mod & KMOD_LCTRL) {
+                switch (key) {
+                    case 'u':
+                        diffstack_undo(ed);
+                        break;
+                    case 'r':
+                        diffstack_redo(ed);
+                        break;
+                    case 'q':
+                        SDL_Quit();
+                        exit(0);
+                        break;
+                }
+
+            }
+            switch (key) {
+                case SDLK_LCTRL:    case SDLK_RCTRL:    case SDLK_LSHIFT:
+                case SDLK_RSHIFT:   case SDLK_LALT:     case SDLK_RALT:
+                    break;
+                case SDLK_UP:       case SDLK_DOWN:     case SDLK_RIGHT:
+                case SDLK_LEFT:     case SDLK_PAGEUP:   case SDLK_PAGEDOWN:
+                    key_move_input(ed, key, mod);
+                    break;
+                case SDLK_DELETE:   case SDLK_ESCAPE:
+                    break;
+                case SDLK_RETURN:
+                    key_return(ed);
+                    break;
+                case SDLK_BACKSPACE:
+                    key_backspace(ed);
+                    break;
+                default:
+                    key_insert_chars(ed, key, mod);
+                    break;
+            }
+            break;
+        case SDL_WINDOWEVENT:
+            if (event->window.event == SDL_WINDOWEVENT_RESIZED) {
+                gl_window_resize(ed
+                    , gl_id
+                    , event->window.data1
+                    , event->window.data2
+                );
+                vk_window_resize(ed
+                    , vks
+                    , event->window.data1
+                    , event->window.data2
+                );
+            }
+            break;
+        default:
+            return;
+    }
+    trampoline = ed->doc->lines + ed->doc->loaded_size;
+    dbg_assert(trampoline->ptr
+        <= ed->doc->file.data + ed->doc->file.size
+    );
+    cursors_reposition(ed->selv, ed->doc);
+    screen_reposition(ed);
+    win_dmg_calc(ed->win, ed->selv);
+    fill_screen(ed);
+
+    gl_window_render(ed, gl_id);
+    vk_window_render(ed, vks);
+}
+
+void
+render_loop(struct editor *ed, struct gl_data *gl_id, struct vkstate *vks) {
+    SDL_Event event;
+    struct event *ev_beg;
+    struct event *ev_end;
+    struct mmap_file events;
 
     gl_window_render(ed, gl_id);
 
-    while (SDL_WaitEvent(&event)) {
-        dbg(ilog_push(&event));
+    if (*ed->conf_params.repeat
+        && load_file(ed->conf_params.repeat, &events) == 0
+    ) {
+        warnx("replaying: %s", ed->conf_params.repeat);
+        ev_beg = (struct event *)events.data;
+        ev_end = (struct event *)(events.data + events.size);
 
-        win_dmg_calc(ed->win, ed->selv);
-
-        key = event.key.keysym.sym;
-        mod = event.key.keysym.mod;
-        switch(event.type) {
-            case SDL_KEYDOWN:
-                if (mod & KMOD_LCTRL) {
-                    switch (key) {
-                        case 'u':
-                            diffstack_undo(ed);
-                            break;
-                        case 'r':
-                            diffstack_redo(ed);
-                            break;
-                        case 'q':
-                            SDL_Quit();
-                            exit(0);
-                            break;
-                    }
-
-                }
-                switch (key) {
-                    case SDLK_LCTRL:    case SDLK_RCTRL:    case SDLK_LSHIFT:
-                    case SDLK_RSHIFT:   case SDLK_LALT:     case SDLK_RALT:
-                        break;
-                    case SDLK_UP:       case SDLK_DOWN:     case SDLK_RIGHT:
-                    case SDLK_LEFT:     case SDLK_PAGEUP:   case SDLK_PAGEDOWN:
-                        key_move_input(ed, key, mod);
-                        break;
-                    case SDLK_DELETE:   case SDLK_ESCAPE:
-                        break;
-                    case SDLK_RETURN:
-                        key_return(ed);
-                        break;
-                    case SDLK_BACKSPACE:
-                        key_backspace(ed);
-                        break;
-                    default:
-                        key_insert_chars(ed, key, mod);
-                        break;
-                }
-                break;
-            case SDL_WINDOWEVENT:
-                if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-                    gl_window_resize(ed
-                        , gl_id
-                        , event.window.data1
-                        , event.window.data2
-                    );
-                    vk_window_resize(ed
-                        , vks
-                        , event.window.data1
-                        , event.window.data2
-                    );
-                }
-                break;
-            default:
+        while (SDL_WaitEvent(&event)) {
+            if (event.type != SDL_WINDOWEVENT) {
                 continue;
+            }
+            if (event.window.event != SDL_WINDOWEVENT_RESIZED) {
+                continue;
+            }
+            unsigned w = event.window.data1;
+            unsigned h = event.window.data2;
+            handle_event(ed, &event, gl_id, vks);
+            if (w > 100 && h > 100) {
+                break;
+            }
         }
-        trampoline = ed->doc->lines + ed->doc->loaded_size;
-        dbg_assert(trampoline->ptr
-            <= ed->doc->file.data + ed->doc->file.size
-        );
-        cursors_reposition(ed->selv, ed->doc);
-        screen_reposition(ed);
-        fill_screen(ed);
 
-        gl_window_render(ed, gl_id);
-        vk_window_render(ed, vks);
+        for (; ev_beg < ev_end; ev_beg++) {
+            event.key.keysym.sym = ev_beg->key;
+            event.key.keysym.mod = ev_beg->mod;
+            event.type = ev_beg->type;
+            if (event.type == SDL_WINDOWEVENT) {
+                continue;
+            }
+            handle_event(ed, &event, gl_id, vks);
+        }
+    }
+    while (SDL_WaitEvent(&event)) {
+        handle_event(ed, &event, gl_id, vks);
     }
 }
 
@@ -1807,6 +1852,14 @@ init_editor(struct editor *ed, const char *fname) {
     }
     struct sigaction sa = { .sa_handler = ilog_dump_sig, };
     sigaction(SIGUSR1, &sa, NULL);
+
+    struct conf_data *repeat = conf_find(&conf_file, "repeat");
+    if (repeat) {
+        memcpy(ed->conf_params.repeat
+            , repeat->val
+            , sizeof(ed->conf_params.repeat)
+        );
+    }
     return 0;
 }
 
@@ -1821,11 +1874,13 @@ main(int argc, char *argv[]) {
         fname = argv[1];
     }
     xensure(init_editor(&ed, fname) == 0);
-    xensure(gl_window_init(&gl_id, argc, argv) == 0);
-    xensure(vk_window_init(&vks, argc, argv) == 0);
 
+    xensure(gl_window_init(&gl_id, argc, argv) == 0);
     xensure(gl_pipeline_init(&ed, &gl_id) == 0);
+
+    xensure(vk_window_init(&vks, argc, argv) == 0);
     xensure(vk_pipeline_init(&ed, &vks) == 0);
+
     render_loop(&ed, &gl_id, &vks);
     return 0;
 }

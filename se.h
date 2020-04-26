@@ -173,6 +173,7 @@ struct conf_file {
 struct conf_params {
     int dump_on_exit;
     int delete_indent;
+    char repeat[VAL_LEN];
 };
 
 struct editor {

@@ -75,6 +75,7 @@ void insert_n_line(size_t, size_t, size_t, struct document **);
 void remove_n_line(size_t, size_t, struct document *);
 void win_dmg_from_lineno(struct window *, size_t);
 void win_dmg_calc(struct window *, struct selectarr *);
+void handle_event(struct editor *, SDL_Event *, struct gl_data *, struct vkstate *);
 void render_loop(struct editor *, struct gl_data *, struct vkstate *);
 void cursors_reposition(struct selectarr *, struct document *);
 int init_editor(struct editor *, const char *);
