@@ -3,6 +3,7 @@ ext/*.bmp
 ext/*.rfp
 ext/*.cfp
 ext/*.o
+ext/*.spv
 *.s
 .*.swp
 test*
