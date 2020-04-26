@@ -33,8 +33,6 @@
 #include "color.def.h"
 #include "class.def.h"
 
-
-
 #define D_GLYPH     (1.0f / 256)
 #define H_GLYPH_PX  (12)
 #define V_GLYPH_PX  (16)

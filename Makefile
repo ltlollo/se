@@ -7,11 +7,11 @@ CFLAGS			:= -I $(VK_INCLUDE) -std=c11  -Wall -Wextra -Wno-pointer-sign \
 DEBUG_CFLAGS	:= ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
 RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 -DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
-SRC				:= se.c lex.c diff.c input.c
+SRC				:= se.c lex.c diff.c input.c vk.c
 
 
 se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c \
-	ext/unifont.o ext/vert.o ext/frag.o vk.c vkhelp.c
+	ext/unifont.o ext/vert.o ext/frag.o
 	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o ext/vert.o \
 		ext/frag.o $(LDFLAGS) -o se
