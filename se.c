@@ -118,16 +118,22 @@ is_same_class(uint32_t glyph_fst, uint32_t glyph_snd) {
 }
 
 void
-gl_window_render(struct window *win, struct gl_data *gl_id) {
+gl_window_render(struct editor *ed, struct gl_data *gl_id) {
+    struct window *win = ed->win;
     unsigned size = window_area(win);
 
+    gl_buffers_upload_dmg(ed);
+    glUniform1f(gl_id->scroll
+        , 2.0 / ed->win->height * ed->win->scrollback_pos
+    );
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glDrawArrays(GL_TRIANGLES, 0, 6 * size * 2);
     SDL_GL_SwapWindow(gl_id->win);
 }
 
 void
-vk_window_render(struct window *win, struct vkstate *vks) {
+vk_window_render(struct editor *ed, struct vkstate *vks) {
+    struct window *win = ed->win;
     uint32_t image_idx;
 
     VkPipelineStageFlags stages = {
@@ -170,17 +176,9 @@ vk_window_render(struct window *win, struct vkstate *vks) {
         default:
             xvkerr(err);
     }
-
     vk_update_ubo(vks->device, vks->ubo_mem[image_idx], &val);
-    void* data;
+    vk_buffers_upload_dmg(ed, vks);
 
-    size_t size = sizeof(struct quad_vertex) * win->width * win->scrollback_size;
-
-    if (size) {
-        vkMapMemory(vks->device, vks->vertex_mem, 0, size, 0, &data);
-        memcpy(data, win->glyph_mesh, size);
-        vkUnmapMemory(vks->device, vks->vertex_mem);
-    }
     submit_info.pCommandBuffers = vks->command_buffers + image_idx;
     xvkerr(vkQueueSubmit(vks->graphics_queue, 1, &submit_info,
             VK_NULL_HANDLE
@@ -1488,6 +1486,17 @@ gl_buffers_upload(struct editor *ed) {
     );
 }
 
+void
+vk_buffers_upload(struct editor *ed, struct vkstate *vks) {
+    size_t size = ed->win->scrollback_size * ed->win->width;
+
+    if (size) {
+        void *data;
+        vkMapMemory(vks->device, vks->vertex_mem, 0, size, 0, &data);
+        memcpy(data, ed->win->glyph_mesh, size);
+        vkUnmapMemory(vks->device, vks->vertex_mem);
+    }
+}
 
 void
 gl_buffers_upload_dmg(struct editor *ed) {
@@ -1509,6 +1518,40 @@ gl_buffers_upload_dmg(struct editor *ed) {
     );
 }
 
+void
+vk_buffers_upload_dmg(struct editor *ed, struct vkstate *vks) {
+    struct window *win = ed->win;
+    struct document *doc = ed->doc;
+    size_t dmg_beg = win->dmg_scrollback_beg;
+    size_t dmg_end = win->dmg_scrollback_end;
+    size_t scrollback_beg = doc->line_off;
+    size_t scrollback_end = doc->line_off + win->scrollback_size;
+
+    size_t dmg_isect_beg = max(scrollback_beg, dmg_beg) - scrollback_beg;
+    size_t dmg_isect_end = min(scrollback_end, dmg_end) - scrollback_beg;
+    size_t dmg_isect_size = dmg_isect_end - dmg_isect_beg;
+
+    if (dmg_isect_size * win->width == 0) {
+        return;
+    }
+    void *data;
+
+    size_t quad_off = dmg_isect_beg * win->width;
+    size_t quad_size = dmg_isect_size * win->width;
+
+    vkMapMemory(vks->device
+        , vks->vertex_mem
+        , sizeof(struct quad_vertex) * quad_off
+        , sizeof(struct quad_vertex) * quad_size
+        , 0
+        , &data
+    );
+    memcpy(data
+        , win->glyph_mesh + quad_off
+        , quad_size * sizeof(struct quad_vertex)
+    );
+    vkUnmapMemory(vks->device, vks->vertex_mem);
+}
 
 void
 move_scrollback(struct editor *ed, enum MV_VERT_DIRECTION vdir, size_t times) {
@@ -1657,7 +1700,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id, struct vkstate *vks) {
     SDL_Event event;
     struct line *trampoline;
 
-    gl_window_render(ed->win, gl_id);
+    gl_window_render(ed, gl_id);
 
     while (SDL_WaitEvent(&event)) {
         dbg(ilog_push(&event));
@@ -1728,12 +1771,9 @@ render_loop(struct editor *ed, struct gl_data *gl_id, struct vkstate *vks) {
         cursors_reposition(ed->selv, ed->doc);
         screen_reposition(ed);
         fill_screen(ed);
-        gl_buffers_upload_dmg(ed);
-        glUniform1f(gl_id->scroll
-            , 2.0 / ed->win->height * ed->win->scrollback_pos
-        ); 
-        gl_window_render(ed->win, gl_id);
-        vk_window_render(ed->win, vks);
+
+        gl_window_render(ed, gl_id);
+        vk_window_render(ed, vks);
     }
 }
 

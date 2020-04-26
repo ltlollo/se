@@ -3,8 +3,8 @@
 
 uint32_t first_glyph(uint8_t *, uint8_t *);
 int is_same_class(uint32_t, uint32_t);
-void gl_window_render(struct window *, struct gl_data *);
-void vk_window_render(struct window *, struct vkstate *);
+void gl_window_render(struct editor *, struct gl_data *);
+void vk_window_render(struct editor *, struct vkstate *);
 void resize_display_matrix(struct editor *, int, int);
 void gl_window_resize(struct editor *, struct gl_data *, int, int);
 void vk_window_resize(struct editor *, struct vkstate *, int, int);
@@ -64,7 +64,9 @@ size_t window_area(struct window *);
 void move_scrollback_up(struct editor *);
 void move_scrollback_down(struct editor *);
 void gl_buffers_upload(struct editor *);
+void vk_buffers_upload(struct editor *, struct vkstate *);
 void gl_buffers_upload_dmg(struct editor *);
+void vk_buffers_upload_dmg(struct editor *, struct vkstate *);
 void move_scrollback(struct editor *, enum MV_VERT_DIRECTION, size_t);
 struct extern_line * convert_line_external(struct line *, struct document *);
 struct document * insert_empty_lines(size_t, size_t, struct document **);
