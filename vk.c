@@ -376,6 +376,7 @@ debug_callback(VkDebugReportFlagsEXT flags
     return VK_FALSE;
 }
 
+#if 0
 struct vkstate {
     SDL_Window *win;
     VkDevice device;
@@ -420,6 +421,7 @@ struct vkstate {
     int w;
     int h;
 };
+#endif
 
 struct ubotype {
     float move;

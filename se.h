@@ -4,7 +4,6 @@
 #ifndef SE_H
 #define SE_H
 
-#include <SDL2/SDL.h>
 #include <linux/limits.h>
 
 #define EMPTY_DIFF     (3 + sizeof(size_t) * 2)
@@ -19,34 +18,20 @@
 
 typedef int(*class_fn)(uint32_t);
 
-struct gl_data {
-    SDL_Window *win;
-    SDL_GLContext ctx;
-    GLuint vao;
-    GLuint tbo;
-    GLuint vbo;
-    GLuint prog;
-    GLuint col;
-    GLuint pos;
-    GLuint uv;
-    GLuint tex;
-    GLuint scroll;
-};
-
 struct color {
-    GLfloat r;
-    GLfloat b;
-    GLfloat g;
+    float r;
+    float b;
+    float g;
 };
 
 struct vertex {
-    GLfloat x;
-    GLfloat y;
-    GLfloat u;
-    GLfloat v;
-    GLfloat r;
-    GLfloat b;
-    GLfloat g;
+    float x;
+    float y;
+    float u;
+    float v;
+    float r;
+    float b;
+    float g;
 };
 
 struct quad_vertex {
