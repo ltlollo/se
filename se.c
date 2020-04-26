@@ -118,7 +118,7 @@ is_same_class(uint32_t glyph_fst, uint32_t glyph_snd) {
 }
 
 void
-window_render(struct window *win, struct gl_data *gl_id) {
+gl_window_render(struct window *win, struct gl_data *gl_id) {
     unsigned size = window_area(win);
 
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -159,7 +159,7 @@ vk_window_render(struct window *win, struct vkstate *vks) {
         case VK_ERROR_OUT_OF_DATE_KHR:
             warnx("VK_ERROR_OUT_OF_DATE_KHR");
             vkdelete(vks);
-            vkcreate(vks, win->width, win->height);
+            vkcreate(vks, win->width, win->scrollback_size, win->glyph_mesh);
             err = vkAcquireNextImageKHR(vks->device, vks->swapchain, ~0ull,
                 vks->image_sem, VK_NULL_HANDLE, &image_idx
             );
@@ -175,10 +175,12 @@ vk_window_render(struct window *win, struct vkstate *vks) {
     void* data;
 
     size_t size = sizeof(struct quad_vertex) * win->width * win->scrollback_size;
-    vkMapMemory(vks->device, vks->vertex_mem, 0, size, 0, &data);
-    memcpy(data, win->glyph_mesh, size);
-    vkUnmapMemory(vks->device, vks->vertex_mem);
 
+    if (size) {
+        vkMapMemory(vks->device, vks->vertex_mem, 0, size, 0, &data);
+        memcpy(data, win->glyph_mesh, size);
+        vkUnmapMemory(vks->device, vks->vertex_mem);
+    }
     submit_info.pCommandBuffers = vks->command_buffers + image_idx;
     xvkerr(vkQueueSubmit(vks->graphics_queue, 1, &submit_info,
             VK_NULL_HANDLE
@@ -187,14 +189,9 @@ vk_window_render(struct window *win, struct vkstate *vks) {
 }
 
 void
-resize_display_matrix(struct editor *ed
-    , struct gl_data *gl_id
-    , int win_width_px
-    , int win_height_px
-    ) {
+resize_display_matrix(struct editor *ed, int win_width_px, int win_height_px) {
     unsigned win_width = win_width_px / H_GLYPH_PX;
     unsigned win_height = win_height_px / V_GLYPH_PX;
-    unsigned size = win_width * win_height;
 
     ed->win = gen_display_matrix(&ed->win, win_width, win_height);
     ensure(ed->win);
@@ -208,9 +205,19 @@ resize_display_matrix(struct editor *ed
     fill_screen_glyphs(ed);
     screen_reposition(ed);
     fill_screen_colors(ed);
+}
+
+void
+gl_window_resize(struct editor *ed
+    , struct gl_data *gl_id
+    , int win_width_px
+    , int win_height_px
+    ) {
+    glViewport(0, 0, win_width_px, win_height_px);
+    resize_display_matrix(ed, win_width_px, win_height_px);
 
     glBufferData(GL_ARRAY_BUFFER
-        , sizeof(struct quad_vertex) * size * 2
+        , sizeof(struct quad_vertex) * window_area(ed->win) * 2
         , NULL
         , GL_DYNAMIC_DRAW
     );
@@ -227,31 +234,26 @@ resize_display_matrix(struct editor *ed
 }
 
 void
-window_resize(struct editor *ed
-    , struct gl_data *gl_id
-    , int win_width_px
-    , int win_height_px
-    ) {
-    // TODO: this should not be needed
-    //glViewport(0, 0, win_width_px, win_height_px);
-    resize_display_matrix(ed, gl_id, win_width_px, win_height_px);
-}
-
-void
 vk_window_resize(struct editor *ed
     , struct vkstate *vks
     , int win_width_px
     , int win_height_px
 ) {
-    unsigned win_width = win_width_px / H_GLYPH_PX;
-    unsigned win_height = win_height_px / V_GLYPH_PX;
-    unsigned size = win_width * win_height;
+    if (win_width_px == 0) {
+        win_width_px = 1;
+    }
+    if (win_height_px == 0) {
+        win_height_px = 1;
+    }
+    resize_display_matrix(ed, win_width_px, win_height_px);
 
     vks->w = win_width_px, vks->h = win_height_px;
     warnx("SDL_WINDOWEVENT_RESIZED: %dx%d", vks->w, vks->h);
 
     vkdelete(vks);
-    vkcreate(vks, win_width, win_height);
+
+    struct window *win = ed->win;
+    vkcreate(vks, win->width, win->scrollback_size, win->glyph_mesh);
 }
 
 struct selectarr *
@@ -400,7 +402,7 @@ str_intercalate(char *buf
 }
 
 int
-window_init(struct gl_data *gl_id, int argc, char **argv) {
+gl_window_init(struct gl_data *gl_id, int argc, char **argv) {
     static char window_title[128];
     int err;
 
@@ -442,20 +444,26 @@ vk_window_init(struct vkstate *vks, int argc, char **argv) {
         | SDL_WINDOW_RESIZABLE
     );
     vkinit(vks, vks->win, debug_callback);
+    return 0;
+}
 
-    //unsigned win_width_px = 0;
-    //unsigned win_height_px = 0;
+int
+vk_pipeline_init(struct editor *ed, struct vkstate *vks) {
     void *font_data = malloc(0x1440000);
     struct mmap_file file;
     struct rfp_file *rfp;
+
+    memzero(ed->win, 1, sizeof(struct window));
 
     xensure(font_data);
     xensure(load_font("unifont.cfp", &file) == 0);
     rfp = load_cfp_file(&file);
     rfp_decompress(rfp, font_data);
 
+    float empty_quad[sizeof(struct quad_vertex) / sizeof(float)] = {};
+
     vkmktex(vks, font_data, 0x1200, 0x1200);
-    vkcreate(vks, 0, 0);
+    vkcreate(vks, 1, 1, empty_quad);
     vkupdatexcmd(vks, 0x1200, 0x1200);
 
     free(font_data);
@@ -598,7 +606,7 @@ gl_pipeline_init(struct editor *ed, struct gl_data *gl_id) {
     xensure(glGetError() == GL_NO_ERROR);
 
     memzero(ed->win, 1, sizeof(struct window));
-    resize_display_matrix(ed, gl_id, win_width_px, win_height_px);
+    gl_window_resize(ed, gl_id, win_width_px, win_height_px);
 
     glEnableVertexAttribArray(gl_id->pos);
     glEnableVertexAttribArray(gl_id->col);
@@ -1649,7 +1657,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id, struct vkstate *vks) {
     SDL_Event event;
     struct line *trampoline;
 
-    window_render(ed->win, gl_id);
+    gl_window_render(ed->win, gl_id);
 
     while (SDL_WaitEvent(&event)) {
         dbg(ilog_push(&event));
@@ -1698,7 +1706,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id, struct vkstate *vks) {
                 break;
             case SDL_WINDOWEVENT:
                 if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-                    window_resize(ed
+                    gl_window_resize(ed
                         , gl_id
                         , event.window.data1
                         , event.window.data2
@@ -1724,7 +1732,7 @@ render_loop(struct editor *ed, struct gl_data *gl_id, struct vkstate *vks) {
         glUniform1f(gl_id->scroll
             , 2.0 / ed->win->height * ed->win->scrollback_pos
         ); 
-        window_render(ed->win, gl_id);
+        gl_window_render(ed->win, gl_id);
         vk_window_render(ed->win, vks);
     }
 }
@@ -1773,11 +1781,11 @@ main(int argc, char *argv[]) {
         fname = argv[1];
     }
     xensure(init_editor(&ed, fname) == 0);
-    xensure(window_init(&gl_id, argc, argv) == 0);
-
+    xensure(gl_window_init(&gl_id, argc, argv) == 0);
     xensure(vk_window_init(&vks, argc, argv) == 0);
 
     xensure(gl_pipeline_init(&ed, &gl_id) == 0);
+    xensure(vk_pipeline_init(&ed, &vks) == 0);
     render_loop(&ed, &gl_id, &vks);
     return 0;
 }

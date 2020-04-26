@@ -642,8 +642,9 @@ vk_update_ubo(VkDevice device, VkDeviceMemory ubo_mem, struct ubotype *val) {
     vkUnmapMemory(device, ubo_mem);
 }
 
+// TODO: use triangles and pass nelements
 void
-vkcreate(struct vkstate *vks, size_t width, size_t height) {
+vkcreate(struct vkstate *vks, size_t width, size_t height, void *mm) {
     VkSurfaceCapabilitiesKHR surface_cap;
     vkGetPhysicalDeviceSurfaceCapabilitiesKHR(vks->gpu, vks->surface,
         &surface_cap
@@ -916,15 +917,16 @@ vkcreate(struct vkstate *vks, size_t width, size_t height) {
             &graphics_info, NULL, &vks->pipeline
     ));
 
-    vkmkbuf(vks, sizeof(float) * 7 * 6 * width * height * 2 + 1,
+    vkmkbuf(vks, sizeof(float) * 7 * 6 * width * height,
         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
         &vks->vertex_buf, &vks->vertex_mem
     );
-    //void* data;
-    //vkMapMemory(vks->device, vks->vertex_mem, 0, sizeof(triangle), 0, &data);
-    //memcpy(data, triangle, sizeof(triangle));
-    //vkUnmapMemory(vks->device, vks->vertex_mem);
+    void* data;
+    size_t size = sizeof(struct quad_vertex) * height * width;
+    vkMapMemory(vks->device, vks->vertex_mem, 0, size, 0, &data);
+    memcpy(data, mm, size);
+    vkUnmapMemory(vks->device, vks->vertex_mem);
 
     // ubo stuff
     for (size_t i = 0; i < vks->swapchain_image_count; i++) {
@@ -1052,7 +1054,7 @@ vkcreate(struct vkstate *vks, size_t width, size_t height) {
             VK_PIPELINE_BIND_POINT_GRAPHICS, vks->pipeline_layout, 0, 1,
             vks->descriptor_sets + i, 0, NULL
         );
-        vkCmdDraw(vks->command_buffers[i], 6 * height * width * 2, 1, 0, 0);
+        vkCmdDraw(vks->command_buffers[i], 6 * height * width, 1, 0, 0);
         vkCmdEndRenderPass(vks->command_buffers[i]);
 
         xvkerr(vkEndCommandBuffer(vks->command_buffers[i]));
