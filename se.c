@@ -564,22 +564,22 @@ gen_display_matrix(struct window **win, unsigned width, unsigned height) {
 
 int
 load_font(const char *fname __unused, struct mmap_file *file) {
-#ifdef LINK_FONT
+    #ifdef LINK_FONT
     extern const char _binary_ext_unifont_cfp_start;
     extern const char _binary_ext_unifont_cfp_end;
     file->size = &_binary_ext_unifont_cfp_end - &_binary_ext_unifont_cfp_start;
     file->data = (void *)&_binary_ext_unifont_cfp_start;
     return 0;
-#else
+    #else
     return load_file(fname, file);
-#endif
+    #endif
 }
 
 void
 unload_font(struct mmap_file *file __unused) {
-#ifndef LINK_FONT
+    #ifndef LINK_FONT
     unload_file(file);
-#endif
+    #endif
 }
 
 int
