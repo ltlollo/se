@@ -376,57 +376,6 @@ debug_callback(VkDebugReportFlagsEXT flags
     return VK_FALSE;
 }
 
-#if 0
-struct vkstate {
-    SDL_Window *win;
-    VkDevice device;
-    VkPhysicalDevice gpu;
-    VkSwapchainKHR swapchain;
-    VkInstance inst;
-    VkSurfaceKHR surface;
-    VkShaderModule vert_module;
-    VkShaderModule frag_module;
-    VkPipelineLayout pipeline_layout;
-    VkRenderPass renderpass;
-    VkPipeline pipeline;
-
-    uint32_t swapchain_image_count;
-    VkImage images[16];
-    VkImageView image_views[16];
-    VkFramebuffer framebuffers[16];
-    VkCommandBuffer command_buffers[16];
-    VkBuffer ubo[16];
-    VkDeviceMemory ubo_mem[16];
-    VkDescriptorSet descriptor_sets[16];
-
-    VkSemaphore image_sem;
-    VkSemaphore render_sem;
-    VkQueue graphics_queue;
-    VkDebugReportCallbackEXT callback;
-    VkPhysicalDeviceMemoryProperties mem_props;
-    VkCommandPool command_pool;
-    VkBuffer vertex_buf;
-    VkDeviceMemory vertex_mem;
-    VkDescriptorSetLayout descriptor_lay;
-    VkDescriptorPool descriptor_pool;
-
-    VkImage tex_img;
-    VkDeviceMemory tex_devmem;
-    VkImageView tex_imgview;
-    VkSampler tex_sampler;
-    VkBuffer staging_buf;
-    VkDeviceMemory staging_devmem;
-
-    uint32_t queue_graphics_idx;
-    int w;
-    int h;
-};
-#endif
-
-struct ubotype {
-    float move;
-};
-
 VkCommandBuffer
 vkbegincmd(struct vkstate *vks) {
     VkCommandBufferAllocateInfo bufalloc_info = {

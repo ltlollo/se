@@ -272,6 +272,7 @@ ui_buffers_upload_dmg(struct editor *ed, union uistate *ui) {
 }
 
 #else
+#include "vk.c"
 
 void
 vk_window_render(struct editor *ed, struct vkstate *vks) {

@@ -1,7 +1,6 @@
 // This is free and unencumbered software released into the public domain.
 // For more information, see LICENSE.
 
-
 #include <SDL2/SDL.h>
 
 #include <stdio.h>
@@ -26,7 +25,6 @@
 #include "se.h"
 #include "ui.h"
 #include "ilog.h"
-#include "vk.c"
 
 #include "se.gen.h"
 #include "umap.gen.h"

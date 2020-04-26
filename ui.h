@@ -79,4 +79,9 @@ union uistate {
     struct vkstate vks;
 };
 
+struct ubotype {
+    float move;
+};
+
+
 #endif // UI_H
