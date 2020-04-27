@@ -146,7 +146,7 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(VkDebugReportFlagsEXT, VkDe
 VkCommandBuffer vkbegincmd(struct vkstate *);
 void vkendcmd(struct vkstate *, VkCommandBuffer);
 void vkcopybuf(struct vkstate *, VkBuffer, VkBuffer, VkDeviceSize);
-void vktransimglay(struct vkstate *, VkImage, VkFormat, VkImageLayout, VkImageLayout);
+void vktransimglay(struct vkstate *, VkImage, VkImageLayout, VkImageLayout);
 void vkcpbuftoimg(struct vkstate *, VkBuffer, VkImage, uint32_t, uint32_t);
 void vkmkbuf(struct vkstate *, VkDeviceSize, VkBufferUsageFlags, VkMemoryPropertyFlags, VkBuffer *, VkDeviceMemory *);
 void vkinit(struct vkstate *, SDL_Window *, void *);

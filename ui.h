@@ -83,5 +83,4 @@ struct ubotype {
     float move;
 };
 
-
 #endif // UI_H

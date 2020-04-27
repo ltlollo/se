@@ -424,7 +424,6 @@ vkcopybuf(struct vkstate *vks, VkBuffer src, VkBuffer dst, VkDeviceSize size) {
 void
 vktransimglay(struct vkstate *vks
     , VkImage img
-    , VkFormat fmt
     , VkImageLayout old
     , VkImageLayout new
 ) {
@@ -531,9 +530,11 @@ vkmkbuf(struct vkstate *vks
 void
 vkinit(struct vkstate *vks, SDL_Window *win, void *debug_callback) {
     vks->inst = vk_mk_inst(win);
-#ifndef NDEBUG
+    #ifndef NDEBUG
     vks->callback = vk_reg_dbg_callback(vks->inst, debug_callback);
-#endif
+    #else
+    (void)debug_callback;
+    #endif
     if (!SDL_Vulkan_CreateSurface(win, vks->inst, &vks->surface)) {
         errx(1, "%s", SDL_GetError());
     }
@@ -1095,12 +1096,12 @@ vkmktex(struct vkstate *vks, void *pixels, int tw, int th) {
 void
 vkupdatexcmd(struct vkstate *vks, int tw, int th) {
     vktransimglay(vks, vks->tex_img,
-        VK_FORMAT_R8_UNORM, VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
     );
     vkcpbuftoimg(vks, vks->staging_buf, vks->tex_img, tw, th);
     vktransimglay(vks, vks->tex_img,
-        VK_FORMAT_R8_UNORM, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
 }

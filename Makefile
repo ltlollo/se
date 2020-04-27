@@ -1,13 +1,16 @@
-VK_INCLUDE 		:= "${HOME}/opt/vulkan/1.2.135.0/x86_64/include"
-VK_LIB 			:= "${HOME}/opt/vulkan/1.2.135.0/x86_64/lib"
-VK_BIN 			:= "${HOME}/opt/vulkan/1.2.135.0/x86_64/bin"
-LDFLAGS			+= -L $(VK_LIB) -lGL -lGLEW -lGLU -lSDL2 -lvulkan
-CFLAGS			+= -I $(VK_INCLUDE) -std=c11  -Wall -Wextra -Wno-pointer-sign \
-	-fPIC
-DEBUG_CFLAGS	:= ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
-RELEASE_CFLAGS	:= ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
--DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
-SRC				:= se.c lex.c diff.c input.c vk.c ui.c
+VK_INCLUDE      := "${HOME}/opt/vulkan/1.2.135.0/x86_64/include"
+VK_LIB          := "${HOME}/opt/vulkan/1.2.135.0/x86_64/lib"
+VK_BIN          := "${HOME}/opt/vulkan/1.2.135.0/x86_64/bin"
+SDL_LIB         := "${HOME}/dev/SDL/build/.libs"
+SDL_INCLUDE     := "${HOME}/dev/SDL/include"
+
+LDFLAGS += -L $(VK_LIB) -L $(SDL_LIB) -lGL -lGLEW -lGLU -lSDL2 -lvulkan
+CFLAGS  += -I $(VK_INCLUDE) -I $(SDL_INCLUDE) -std=c11  -Wall -Wextra \
+	-Wno-pointer-sign -fPIC
+DEBUG_CFLAGS    := ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
+RELEASE_CFLAGS  := ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
+	-DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
+SRC	:= se.c lex.c diff.c input.c vk.c ui.c
 
 
 se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c \
@@ -77,6 +80,6 @@ ext/frag.o: ext/frag.spv
 	ld -r -b binary -z noexecstack ext/frag.spv -o ext/frag.o
 
 run: se
-	LD_LIBRARY_PATH=$(VK_LIB) ./se
+	LD_LIBRARY_PATH=$(VK_LIB):$(SDL_LIB) ./se
 
 .PHONY: clean
