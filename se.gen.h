@@ -181,3 +181,7 @@ int ui_window_init(union uistate *, int, char **);
 int ui_pipeline_init(struct editor *, union uistate *);
 void ui_buffers_upload(struct editor *, union uistate *);
 void ui_buffers_upload_dmg(struct editor *, union uistate *);
+int conf_add(struct conf_file *, char key[static KEY_LEN], char val[static VAL_LEN]);
+struct conf_data * conf_find(struct conf_file *, char *);
+int conf_fill(struct conf_file *);
+void init_conf_file(struct conf_file *);

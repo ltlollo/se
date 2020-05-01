@@ -1438,24 +1438,25 @@ init_editor(struct editor *ed, const char *fname) {
     ensure(ed->win);
 
     struct conf_data *dump_on_exit = conf_find(&conf_file, "dump_on_exit");
+    struct conf_data *delete_indent = conf_find(&conf_file, "delete_indent");
+    struct conf_data *repeat = conf_find(&conf_file, "repeat");
+
     if (dump_on_exit) {
         ed->conf_params.dump_on_exit = strcmp(dump_on_exit->val, "1") == 0;
         ilog_enable = ed->conf_params.dump_on_exit;
     }
-    struct conf_data *delete_indent = conf_find(&conf_file, "delete_indent");
     if (delete_indent) {
         ed->conf_params.delete_indent = strcmp(delete_indent->val, "1") == 0;
     }
-    struct sigaction sa = { .sa_handler = ilog_dump_sig, };
-    sigaction(SIGUSR1, &sa, NULL);
-
-    struct conf_data *repeat = conf_find(&conf_file, "repeat");
     if (repeat) {
         memcpy(ed->conf_params.repeat
             , repeat->val
             , sizeof(ed->conf_params.repeat)
         );
     }
+    struct sigaction sa = { .sa_handler = ilog_dump_sig, };
+    sigaction(SIGUSR1, &sa, NULL);
+
     return 0;
 }
 

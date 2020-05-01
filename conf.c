@@ -148,6 +148,7 @@ conf_fill(struct conf_file *conf) {
 void
 init_conf_file(struct conf_file *conf) {
     char *home = getenv("HOME");
+    conf->size = 0;
 
     if (home == NULL) {
         warnx("conf: fatal error cannot read $HOME");
@@ -164,6 +165,5 @@ init_conf_file(struct conf_file *conf) {
         warn("conf: fatal error cannot load %s", conf->path);
         return;
     }
-    conf->size = 0;
     conf_fill(conf);
 }

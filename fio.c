@@ -26,6 +26,12 @@ load_file(const char *fname, struct mmap_file *file) {
     }
     length = lseek(fd, 0, SEEK_END);
     xensure_errno(length != -1);
+
+    if (length == 0) {
+        file->size = length;
+        file->data = NULL;
+        return 0;
+    }
     xensure_errno(lseek(fd, 0, SEEK_SET) != -1);
 
     file->size = length;
