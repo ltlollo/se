@@ -1367,8 +1367,11 @@ handle_event(struct editor *ed
     cursors_reposition(ed->selv, ed->doc);
     screen_reposition(ed);
     win_dmg_calc(ed->win, ed->selv);
-    fill_screen(ed);
 
+    if (__unlikey(ed->win->height * ed->win->width == 1)) {
+        return;
+    }
+    fill_screen(ed);
     ui_window_render(ed, ui);
 }
 

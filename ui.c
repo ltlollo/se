@@ -374,6 +374,8 @@ vk_pipeline_init(struct editor *ed, struct vkstate *vks) {
     void *font_data = malloc(0x1440000);
     struct mmap_file file;
     struct rfp_file *rfp;
+    size_t init_width  = 1;
+    size_t init_height = 1;
 
     memzero(ed->win, 1, sizeof(struct window));
 
@@ -385,7 +387,9 @@ vk_pipeline_init(struct editor *ed, struct vkstate *vks) {
     float empty_quad[sizeof(struct quad_vertex) / sizeof(float)] = {};
 
     vkmktex(vks, font_data, 0x1200, 0x1200);
-    vkcreate(vks, 1, 1, empty_quad);
+    ed->win = gen_display_matrix(&ed->win, init_width, init_height);
+
+    vkcreate(vks, init_width, init_height, empty_quad);
     vkupdatexcmd(vks, 0x1200, 0x1200);
 
     free(font_data);
