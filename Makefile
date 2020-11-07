@@ -7,8 +7,7 @@ SDL_INCLUDE     := "${HOME}/dev/SDL/include"
 LDFLAGS += -L $(SDL_LIB) -lSDL2
 GL_LDFLAGS += -L $(SDL_LIB) -lGL -lGLEW -lGLU
 VK_LDFLAGS += -L $(VK_LIB) -lvulkan
-CFLAGS  += -I $(VK_INCLUDE) -I $(SDL_INCLUDE) -std=c11 -Wall -Wextra \
-	-Wno-pointer-sign -fPIC
+CFLAGS  += -I $(SDL_INCLUDE) -std=c11 -Wall -Wextra -Wno-pointer-sign -fPIC
 DEBUG_CFLAGS    := ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
 RELEASE_CFLAGS  := ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 	-DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
@@ -17,7 +16,7 @@ SRC	:= se.c lex.c diff.c input.c ui.c conf.c
 
 se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c vk.c vk.gen.h \
 	ext/unifont.o ext/vert.o ext/frag.o
-	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
+	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) -I $(VK_INCLUDE) \
 		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o ./ext/vert.o \
 		./ext/frag.o $(LDFLAGS) $(VK_LDFLAGS) -o se
 
@@ -41,9 +40,9 @@ tags: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c gl.c vk.c
 
 release: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c ext/unifont.o \
 	ext/vert.o ext/frag.o
-	$(CC) -DNDEBUG -DLINK_FONT -D_GNU_SOURCE $(RELEASE_CFLAGS) \
+	$(CC) -DNDEBUG -DLINK_FONT -D_GNU_SOURCE $(RELEASE_CFLAGS) -I $(VK_INCLUDE) \
 		se.c lex.c util.c fio.c comp.c ilog.c ext/unifont.o ./ext/vert.o \
-		./ext/frag.o $(LDFLAGS) -o se
+		./ext/frag.o $(LDFLAGS) $(VK_LDFLAGS) -o se
 
 asm/%.s: %.c
 	mkdir -p asm
@@ -94,7 +93,7 @@ ext/vert.o: ext/vert.spv
 ext/frag.o: ext/frag.spv
 	ld -r -b binary -z noexecstack ext/frag.spv -o ext/frag.o
 
-run: se
+run:
 	LD_LIBRARY_PATH=$(VK_LIB):$(SDL_LIB) ./se
 
 .PHONY: clean
