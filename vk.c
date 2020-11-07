@@ -1,3 +1,5 @@
+#include "vk.gen.h"
+
 #if defined(__linux__)
 #   define VK_USE_PLATFORM_XCB_KHR
 #elif defined(_WIN32)
@@ -1104,4 +1106,173 @@ vkupdatexcmd(struct vkstate *vks, int tw, int th) {
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
+}
+
+void
+vk_window_render(struct editor *ed, struct vkstate *vks) {
+    struct window *win = ed->win;
+    uint32_t image_idx;
+
+    VkPipelineStageFlags stages = {
+        VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+    };
+    VkSubmitInfo submit_info = {
+        .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &vks->image_sem,
+        .pWaitDstStageMask = &stages,
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores = &vks->render_sem,
+        .commandBufferCount = 1,
+    };
+    VkPresentInfoKHR present_info = {
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .waitSemaphoreCount = 1,
+        .pWaitSemaphores = &vks->render_sem,
+        .swapchainCount = 1,
+        .pSwapchains = &vks->swapchain,
+        .pImageIndices = &image_idx,
+    };
+    struct ubotype val = { .move = 2.0 / win->height * win->scrollback_pos, };
+
+    int err = vkAcquireNextImageKHR(vks->device, vks->swapchain, ~0ull,
+        vks->image_sem, VK_NULL_HANDLE, &image_idx
+    );
+    switch (err) {
+        case VK_ERROR_OUT_OF_DATE_KHR:
+            warnx("VK_ERROR_OUT_OF_DATE_KHR");
+            vkdelete(vks);
+            vkcreate(vks, win->width, win->scrollback_size, win->glyph_mesh);
+            err = vkAcquireNextImageKHR(vks->device, vks->swapchain, ~0ull,
+                vks->image_sem, VK_NULL_HANDLE, &image_idx
+            );
+            break;
+        case VK_SUBOPTIMAL_KHR:
+            warnx("VK_SUBOPTIMAL_KHR");
+            break;
+        default:
+            xvkerr(err);
+    }
+    vk_update_ubo(vks->device, vks->ubo_mem[image_idx], &val);
+    vk_buffers_upload_dmg(ed, vks);
+
+    submit_info.pCommandBuffers = vks->command_buffers + image_idx;
+    xvkerr(vkQueueSubmit(vks->graphics_queue, 1, &submit_info,
+            VK_NULL_HANDLE
+    ));
+    vkQueuePresentKHR(vks->graphics_queue, &present_info);
+}
+
+void
+vk_window_resize(struct editor *ed
+    , struct vkstate *vks
+    , int win_width_px
+    , int win_height_px
+) {
+    if (win_width_px == 0) {
+        win_width_px = 1;
+    }
+    if (win_height_px == 0) {
+        win_height_px = 1;
+    }
+    resize_display_matrix(ed, win_width_px, win_height_px);
+
+    vks->w = win_width_px, vks->h = win_height_px;
+    warnx("SDL_WINDOWEVENT_RESIZED: %dx%d", vks->w, vks->h);
+
+    vkdelete(vks);
+
+    struct window *win = ed->win;
+    vkcreate(vks, win->width, win->scrollback_size, win->glyph_mesh);
+}
+
+int
+vk_window_init(struct vkstate *vks, int argc, char **argv) {
+    static char window_title[128];
+
+    str_intercalate(window_title, sizeof(window_title) - 1, argv, argc, ' '); 
+
+    vks->w = 800;
+    vks->h = 600;
+    SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS);
+    vks->win = SDL_CreateWindow(window_title, 0, 0, vks->w, vks->h
+        , SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_MAXIMIZED
+        | SDL_WINDOW_RESIZABLE
+    );
+    vkinit(vks, vks->win, debug_callback);
+    return 0;
+}
+
+int
+vk_pipeline_init(struct editor *ed, struct vkstate *vks) {
+    void *font_data = malloc(0x1440000);
+    struct mmap_file file;
+    struct rfp_file *rfp;
+    size_t init_width  = 1;
+    size_t init_height = 1;
+
+    memzero(ed->win, 1, sizeof(struct window));
+
+    xensure(font_data);
+    xensure(load_font("unifont.cfp", &file) == 0);
+    rfp = load_cfp_file(&file);
+    rfp_decompress(rfp, font_data);
+
+    float empty_quad[sizeof(struct quad_vertex) / sizeof(float)] = {};
+
+    vkmktex(vks, font_data, 0x1200, 0x1200);
+    ed->win = gen_display_matrix(&ed->win, init_width, init_height);
+
+    vkcreate(vks, init_width, init_height, empty_quad);
+    vkupdatexcmd(vks, 0x1200, 0x1200);
+
+    free(font_data);
+    return 0;
+}
+
+void
+vk_buffers_upload(struct editor *ed, struct vkstate *vks) {
+    size_t size = ed->win->scrollback_size * ed->win->width;
+
+    if (size) {
+        void *data;
+        vkMapMemory(vks->device, vks->vertex_mem, 0, size, 0, &data);
+        memcpy(data, ed->win->glyph_mesh, size);
+        vkUnmapMemory(vks->device, vks->vertex_mem);
+    }
+}
+
+void
+vk_buffers_upload_dmg(struct editor *ed, struct vkstate *vks) {
+    struct window *win = ed->win;
+    struct document *doc = ed->doc;
+    size_t dmg_beg = win->dmg_scrollback_beg;
+    size_t dmg_end = win->dmg_scrollback_end;
+    size_t scrollback_beg = doc->line_off;
+    size_t scrollback_end = doc->line_off + win->scrollback_size;
+
+    size_t dmg_isect_beg = max(scrollback_beg, dmg_beg) - scrollback_beg;
+    size_t dmg_isect_end = min(scrollback_end, dmg_end) - scrollback_beg;
+    size_t dmg_isect_size = dmg_isect_end - dmg_isect_beg;
+
+    if (dmg_isect_size * win->width == 0) {
+        return;
+    }
+    void *data;
+
+    size_t quad_off = dmg_isect_beg * win->width;
+    size_t quad_size = dmg_isect_size * win->width;
+
+    vkMapMemory(vks->device
+        , vks->vertex_mem
+        , sizeof(struct quad_vertex) * quad_off
+        , sizeof(struct quad_vertex) * quad_size
+        , 0
+        , &data
+    );
+    memcpy(data
+        , win->glyph_mesh + quad_off
+        , quad_size * sizeof(struct quad_vertex)
+    );
+    vkUnmapMemory(vks->device, vks->vertex_mem);
 }

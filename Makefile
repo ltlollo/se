@@ -4,25 +4,39 @@ VK_BIN          := "${HOME}/opt/vulkan/1.2.135.0/x86_64/bin"
 SDL_LIB         := "${HOME}/dev/SDL/build/.libs"
 SDL_INCLUDE     := "${HOME}/dev/SDL/include"
 
-LDFLAGS += -L $(VK_LIB) -L $(SDL_LIB) -lGL -lGLEW -lGLU -lSDL2 -lvulkan
-CFLAGS  += -I $(VK_INCLUDE) -I $(SDL_INCLUDE) -std=c11  -Wall -Wextra \
+LDFLAGS += -L $(SDL_LIB) -lSDL2
+GL_LDFLAGS += -L $(SDL_LIB) -lGL -lGLEW -lGLU
+VK_LDFLAGS += -L $(VK_LIB) -lvulkan
+CFLAGS  += -I $(VK_INCLUDE) -I $(SDL_INCLUDE) -std=c11 -Wall -Wextra \
 	-Wno-pointer-sign -fPIC
 DEBUG_CFLAGS    := ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
 RELEASE_CFLAGS  := ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
 	-DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
-SRC	:= se.c lex.c diff.c input.c vk.c ui.c conf.c
+SRC	:= se.c lex.c diff.c input.c ui.c conf.c
 
 
-se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c \
+se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c vk.c vk.gen.h \
 	ext/unifont.o ext/vert.o ext/frag.o
 	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o ./ext/vert.o \
-		./ext/frag.o $(LDFLAGS) -o se
+		./ext/frag.o $(LDFLAGS) $(VK_LDFLAGS) -o se
+
+gl_se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c gl.c gl.gen.h \
+	ext/unifont.o
+	$(CC) -DLINK_FONT -D_GNU_SOURCE -DUSE_OPENGL $(DEBUG_CFLAGS) \
+		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o \
+		$(LDFLAGS) $(GL_LDFLAGS) -o gl_se
+
+gl.gen.h: gl.c
+	$(SH) ./ext/gen_headers $^ > gl.gen.h
+
+vk.gen.h: vk.c
+	$(SH) ./ext/gen_headers $^ > vk.gen.h
 
 se.gen.h: $(SRC)
-	$(SH) ./ext/gen_headers $(SRC) > se.gen.h
+	$(SH) ./ext/gen_headers $^ > se.gen.h
 
-tags: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c
+tags: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c gl.c vk.c
 	@ctags *.c *.h
 
 release: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c ext/unifont.o \

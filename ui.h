@@ -9,11 +9,32 @@
 #   error "Unknown Platform"
 #endif
 
+#ifdef USE_OPENGL
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_vulkan.h>
-#include <vulkan/vulkan.h>
 #include <GL/glew.h>
 #include <GL/gl.h>
+
+struct gl_data {
+    SDL_Window *win;
+    SDL_GLContext ctx;
+    GLuint vao;
+    GLuint tbo;
+    GLuint vbo;
+    GLuint prog;
+    GLuint col;
+    GLuint pos;
+    GLuint uv;
+    GLuint tex;
+    GLuint scroll;
+};
+
+union uistate {
+    struct gl_data gl_id;
+};
+
+#else
+#include <SDL2/SDL_vulkan.h>
+#include <vulkan/vulkan.h>
 
 struct vkstate {
     SDL_Window *win;
@@ -31,6 +52,7 @@ struct vkstate {
     uint32_t swapchain_image_count;
     VkImage images[16];
     VkImageView image_views[16];
+
     VkFramebuffer framebuffers[16];
     VkCommandBuffer command_buffers[16];
     VkBuffer ubo[16];
@@ -60,27 +82,14 @@ struct vkstate {
     int h;
 };
 
-struct gl_data {
-    SDL_Window *win;
-    SDL_GLContext ctx;
-    GLuint vao;
-    GLuint tbo;
-    GLuint vbo;
-    GLuint prog;
-    GLuint col;
-    GLuint pos;
-    GLuint uv;
-    GLuint tex;
-    GLuint scroll;
-};
-
-union uistate {
-    struct gl_data gl_id;
-    struct vkstate vks;
-};
-
 struct ubotype {
     float move;
 };
+
+union uistate {
+    struct vkstate vks;
+};
+
+#endif // USE_OPENGL
 
 #endif // UI_H
