@@ -25,7 +25,8 @@ se.gen.h: $(SRC)
 tags: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c
 	@ctags *.c *.h
 
-release: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c ext/unifont.o
+release: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c ext/unifont.o \
+	ext/vert.o ext/frag.o
 	$(CC) -DNDEBUG -DLINK_FONT -D_GNU_SOURCE $(RELEASE_CFLAGS) \
 		se.c lex.c util.c fio.c comp.c ilog.c ext/unifont.o ./ext/vert.o \
 		./ext/frag.o $(LDFLAGS) -o se
@@ -68,10 +69,10 @@ perf:
 	gprof2dot -f perf -o perf.dot perf.data
 
 ext/vert.spv: shader.vert
-	$(VK_BIN)/glslangValidator -V shader.vert -o ext/vert.spv
+	$(VK_BIN)/glslangValidator --target-env vulkan1.2 -V shader.vert -o ext/vert.spv
 
 ext/frag.spv: shader.frag
-	$(VK_BIN)/glslangValidator -V shader.frag -o ext/frag.spv
+	$(VK_BIN)/glslangValidator --target-env vulkan1.2 -V shader.frag -o ext/frag.spv
 
 ext/vert.o: ext/vert.spv
 	ld -r -b binary -z noexecstack ext/vert.spv -o ext/vert.o
