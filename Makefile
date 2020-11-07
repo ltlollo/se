@@ -27,13 +27,14 @@ gl_se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c gl.c gl.g
 		$(LDFLAGS) $(GL_LDFLAGS) -o gl_se
 
 gl.gen.h: gl.c
-	$(SH) ./ext/gen_headers $^ > gl.gen.h
+	$(SH) ./ext/gen_headers $^ > $@
 
 vk.gen.h: vk.c
-	$(SH) ./ext/gen_headers $^ > vk.gen.h
+	$(SH) ./ext/gen_headers $^ > $@
 
 se.gen.h: $(SRC)
-	$(SH) ./ext/gen_headers $^ > se.gen.h
+	$(SH) ./ext/gen_headers $^ > $@
+
 
 tags: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c gl.c vk.c
 	@ctags *.c *.h
