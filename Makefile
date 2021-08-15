@@ -8,8 +8,8 @@ LDFLAGS += -L $(SDL_LIB) -lSDL2
 GL_LDFLAGS += -L $(SDL_LIB) -lGL -lGLEW -lGLU
 VK_LDFLAGS += -L $(VK_LIB) -lvulkan
 CFLAGS  += -I $(SDL_INCLUDE) -std=c11 -Wall -Wextra -Wno-pointer-sign -fPIC
-DEBUG_CFLAGS    := ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
-RELEASE_CFLAGS  := ${CFLAGS} -Ofast -pie -ftree-vectorize -march=native -s \
+DEBUG_CFLAGS    := ${CFLAGS} -g -gdwarf-2 -O0 -pie -fno-omit-frame-pointer
+RELEASE_CFLAGS  := ${CFLAGS} -ggdb -Ofast -pie -ftree-vectorize -march=native \
 	-DNDEBUG -funroll-all-loops -fprefetch-loop-arrays -minline-all-stringops
 SRC	:= se.c lex.c diff.c input.c ui.c conf.c
 

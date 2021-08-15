@@ -105,6 +105,7 @@ struct line_non_utf8 {
 };
 
 struct document {
+    char *fname;
     struct mmap_file file;
     size_t alloc;
     size_t loaded_size;

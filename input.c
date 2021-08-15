@@ -24,7 +24,7 @@ key_move_input(struct editor *ed, int key, int mod) {
             load_lines(ed, ed->win->height);
             dbg_assert(ed->doc->loaded_size > 0);
             delta = min(ed->doc->loaded_size - ed->selv->focus->line - 1
-                , ed->win->height
+                , ed->win->height / 2
             );
             sel_curr = ed->selv->data;
             while (sel_curr != ed->selv->data + ed->selv->size) {
@@ -34,7 +34,7 @@ key_move_input(struct editor *ed, int key, int mod) {
             break;
         case SDLK_PAGEUP:
             ed->selv->focus = ed->selv->data;
-            delta = min(ed->selv->focus->line, ed->win->height);
+            delta = min(ed->selv->focus->line, ed->win->height / 2);
             sel_curr = ed->selv->data;
             while (sel_curr != ed->selv->data + ed->selv->size) {
                 sel_curr->line -= delta;

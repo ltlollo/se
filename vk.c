@@ -178,7 +178,6 @@ vk_graphics_queue_idx(VkPhysicalDevice gpu) {
             queue_graphics_idx = i;
         }
     }
-    xensure(queue_graphics_idx != ~0u);
     return queue_graphics_idx;
 }
 
@@ -540,13 +539,19 @@ vkinit(struct vkstate *vks, SDL_Window *win, void *debug_callback) {
     if (!SDL_Vulkan_CreateSurface(win, vks->inst, &vks->surface)) {
         errx(1, "%s", SDL_GetError());
     }
-    uint32_t gpu_count = 1;
-    xvkerr(vkEnumeratePhysicalDevices(vks->inst, &gpu_count, &vks->gpu));
+    uint32_t gpu_count;
+    xvkerr(vkEnumeratePhysicalDevices(vks->inst, &gpu_count, NULL));
 
     VkPhysicalDevice gpus[gpu_count];
     xvkerr(vkEnumeratePhysicalDevices(vks->inst, &gpu_count, gpus));
 
-    xensure((vks->queue_graphics_idx = vk_graphics_queue_idx(vks->gpu)) != ~0u);
+    for (uint32_t i = 0; i < gpu_count; i++) {
+        if ((vks->queue_graphics_idx = vk_graphics_queue_idx(gpus[i])) != ~0u) {
+            vks->gpu = gpus[i];
+            break;
+        }
+    }
+    xensure(vks->queue_graphics_idx != ~0u);
 
     float queue_priorities = .0;
 
@@ -635,10 +640,12 @@ vkcreate(struct vkstate *vks, size_t width, size_t height, void *mm) {
         surface_format.format = VK_FORMAT_B8G8R8A8_UNORM;
         surface_format.colorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
     } 
+    size_t image_count = max(1, surface_cap.minImageCount);
+
     VkSwapchainCreateInfoKHR swapchain_info = {
         .sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
         .surface = vks->surface,
-        .minImageCount = surface_cap.minImageCount + 1,
+        .minImageCount = image_count,
         .imageFormat = surface_format.format,
         .imageColorSpace = surface_format.colorSpace,
         .imageExtent = surface_cap.currentExtent,
@@ -658,7 +665,7 @@ vkcreate(struct vkstate *vks, size_t width, size_t height, void *mm) {
     xvkerr(vkCreateSwapchainKHR(vks->device, &swapchain_info, NULL,
             &vks->swapchain
     ));
-    vks->swapchain_image_count = surface_cap.minImageCount + 1;
+    vks->swapchain_image_count = image_count;
 
     xvkerr(vkGetSwapchainImagesKHR(vks->device, vks->swapchain,
             &vks->swapchain_image_count, NULL

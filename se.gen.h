@@ -61,6 +61,7 @@ void insert_n_line(size_t, size_t, size_t, struct document **);
 void remove_n_line(size_t, size_t, struct document *);
 void win_dmg_from_lineno(struct window *, size_t);
 void win_dmg_calc(struct window *, struct selectarr *);
+void save_file(struct editor *);
 void handle_event(struct editor *, SDL_Event *, union uistate *);
 void render_loop(struct editor *, union uistate *);
 void cursors_reposition(struct selectarr *, struct document *);

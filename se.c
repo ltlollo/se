@@ -736,6 +736,7 @@ init_doc(const char *fname, struct document **doc) {
     res->alloc = alloc;
     res->loaded_size = 0;
     res->line_off = 0;
+    res->fname = (char *)fname;
     fst_line = res->lines;
     fst_line->size = 0;
     fst_line->alloc = 0;
@@ -1291,6 +1292,27 @@ win_dmg_calc(struct window *win, struct selectarr *selv) {
 }
 
 void
+save_file(struct editor *ed) {
+    FILE *f = fopen("decide_later", "w");
+    struct document *doc = ed->doc;
+    struct line *trampoline = doc->lines + doc->loaded_size;
+    char *doc_end = doc->file.data + doc->file.size;
+
+    for (size_t i = 0; i < doc->loaded_size; i++) {
+        struct line *line = doc->lines + i;
+        char *beg = begin_line(line, doc), *end = end_line(line, doc);
+        fwrite(beg, 1, end - beg, f);
+        fwrite("\n", 1, 1, f);
+    }
+    if (trampoline->ptr != doc_end) {
+        char *doc_rst = begin_line(trampoline, doc);
+        fwrite(doc_rst, 1, doc_end - doc_rst, f);
+    }
+    fclose(f);
+    rename("decide_later", doc->fname);
+}
+
+void
 handle_event(struct editor *ed
     , SDL_Event *event
     , union uistate *ui
@@ -1324,6 +1346,8 @@ handle_event(struct editor *ed
                         SDL_Quit();
                         exit(0);
                         break;
+                    case 's':
+                        save_file(ed);
                 }
 
             }
