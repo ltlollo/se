@@ -27,15 +27,13 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0x0531 && glyph < 0x0557) {
         return 0;
-    } else if (glyph >= 0x0559 && glyph < 0x0560) {
-        return 0;
-    } else if (glyph >= 0x0561 && glyph < 0x0588) {
+    } else if (glyph >= 0x0559 && glyph < 0x058b) {
         return 0;
     } else if (glyph >= 0x0591 && glyph < 0x05c8) {
         return 0;
     } else if (glyph >= 0x05d0 && glyph < 0x05eb) {
         return 0;
-    } else if (glyph >= 0x05f0 && glyph < 0x05f5) {
+    } else if (glyph >= 0x05ef && glyph < 0x05f5) {
         return 0;
     } else if (glyph >= 0x0617 && glyph < 0x061c) {
         return 0;
@@ -65,23 +63,21 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0x08a0 && glyph < 0x08b5) {
         return 0;
-    } else if (glyph >= 0x08b6 && glyph < 0x08be) {
+    } else if (glyph >= 0x08b6 && glyph < 0x08c8) {
         return 0;
-    } else if (glyph >= 0x08d4 && glyph < 0x08da) {
+    } else if (glyph >= 0x08d3 && glyph < 0x08da) {
         return 0;
     } else if (glyph >= 0x08e0 && glyph < 0x0900) {
         return 0;
-    } else if (glyph >= 0x0943 && glyph < 0x0949) {
-        return 0;
-    } else if (glyph >= 0x0951 && glyph < 0x0958) {
-        return 0;
     } else if (glyph >= 0x0e01 && glyph < 0x0e3b) {
         return 0;
-    } else if (glyph >= 0x0e3f && glyph < 0x0e5c) {
+    } else if (glyph >= 0x0e3f && glyph < 0x0e5b) {
         return 0;
-    } else if (glyph >= 0x0e99 && glyph < 0x0ea0) {
+    } else if (glyph >= 0x0e86 && glyph < 0x0e8b) {
         return 0;
-    } else if (glyph >= 0x0ead && glyph < 0x0eba) {
+    } else if (glyph >= 0x0e8c && glyph < 0x0ea4) {
+        return 0;
+    } else if (glyph >= 0x0ea7 && glyph < 0x0ebe) {
         return 0;
     } else if (glyph >= 0x0ec0 && glyph < 0x0ec5) {
         return 0;
@@ -103,11 +99,9 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0x0fbe && glyph < 0x0fc5) {
         return 0;
-    } else if (glyph >= 0x1012 && glyph < 0x1018) {
+    } else if (glyph >= 0x1067 && glyph < 0x106e) {
         return 0;
-    } else if (glyph >= 0x1041 && glyph < 0x104d) {
-        return 0;
-    } else if (glyph >= 0x1050 && glyph < 0x1056) {
+    } else if (glyph >= 0x1087 && glyph < 0x108c) {
         return 0;
     } else if (glyph >= 0x10a0 && glyph < 0x10c6) {
         return 0;
@@ -155,27 +149,27 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0x18d4 && glyph < 0x18e0) {
         return 0;
-    } else if (glyph >= 0x1900 && glyph < 0x1905) {
-        return 0;
-    } else if (glyph >= 0x190b && glyph < 0x1910) {
-        return 0;
-    } else if (glyph >= 0x1911 && glyph < 0x1919) {
-        return 0;
-    } else if (glyph >= 0x191a && glyph < 0x191f) {
+    } else if (glyph >= 0x1900 && glyph < 0x191f) {
         return 0;
     } else if (glyph >= 0x1950 && glyph < 0x196e) {
         return 0;
     } else if (glyph >= 0x1970 && glyph < 0x1975) {
         return 0;
+    } else if (glyph >= 0x19d0 && glyph < 0x19d5) {
+        return 0;
     } else if (glyph >= 0x1a6e && glyph < 0x1a73) {
         return 0;
-    } else if (glyph >= 0x1ab0 && glyph < 0x1abf) {
+    } else if (glyph >= 0x1ab0 && glyph < 0x1ac1) {
         return 0;
     } else if (glyph >= 0x1b6a && glyph < 0x1b70) {
         return 0;
     } else if (glyph >= 0x1b72 && glyph < 0x1b7d) {
         return 0;
+    } else if (glyph >= 0x1bcb && glyph < 0x1bd0) {
+        return 0;
     } else if (glyph >= 0x1c50 && glyph < 0x1c89) {
+        return 0;
+    } else if (glyph >= 0x1c90 && glyph < 0x1cbb) {
         return 0;
     } else if (glyph >= 0x1d00 && glyph < 0x1d7a) {
         return 0;
@@ -233,19 +227,25 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0x212f && glyph < 0x213a) {
         return 0;
-    } else if (glyph >= 0x2147 && glyph < 0x214c) {
-        return 0;
     } else if (glyph >= 0x2150 && glyph < 0x2182) {
         return 0;
     } else if (glyph >= 0x2183 && glyph < 0x2188) {
         return 0;
-    } else if (glyph >= 0x2190 && glyph < 0x21f4) {
+    } else if (glyph >= 0x2190 && glyph < 0x219c) {
         return 0;
-    } else if (glyph >= 0x2200 && glyph < 0x22f2) {
+    } else if (glyph >= 0x219e && glyph < 0x21f4) {
         return 0;
-    } else if (glyph >= 0x2300 && glyph < 0x2329) {
+    } else if (glyph >= 0x2200 && glyph < 0x22b6) {
         return 0;
-    } else if (glyph >= 0x232d && glyph < 0x237b) {
+    } else if (glyph >= 0x22b9 && glyph < 0x22d8) {
+        return 0;
+    } else if (glyph >= 0x22da && glyph < 0x22f2) {
+        return 0;
+    } else if (glyph >= 0x2301 && glyph < 0x2316) {
+        return 0;
+    } else if (glyph >= 0x2317 && glyph < 0x2329) {
+        return 0;
+    } else if (glyph >= 0x2336 && glyph < 0x237b) {
         return 0;
     } else if (glyph >= 0x239b && glyph < 0x23b2) {
         return 0;
@@ -257,9 +257,11 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0x2440 && glyph < 0x244b) {
         return 0;
-    } else if (glyph >= 0x2500 && glyph < 0x2603) {
+    } else if (glyph >= 0x2500 && glyph < 0x25ef) {
         return 0;
-    } else if (glyph >= 0x2604 && glyph < 0x2615) {
+    } else if (glyph >= 0x25f0 && glyph < 0x2603) {
+        return 0;
+    } else if (glyph >= 0x2604 && glyph < 0x2610) {
         return 0;
     } else if (glyph >= 0x261a && glyph < 0x2622) {
         return 0;
@@ -277,29 +279,33 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0x2980 && glyph < 0x2993) {
         return 0;
+    } else if (glyph >= 0x2997 && glyph < 0x299e) {
+        return 0;
+    } else if (glyph >= 0x299f && glyph < 0x29a8) {
+        return 0;
     } else if (glyph >= 0x29d1 && glyph < 0x29da) {
         return 0;
     } else if (glyph >= 0x29ee && glyph < 0x29f4) {
         return 0;
     } else if (glyph >= 0x29f5 && glyph < 0x29fe) {
         return 0;
-    } else if (glyph >= 0x2a21 && glyph < 0x2a27) {
+    } else if (glyph >= 0x2a0d && glyph < 0x2a1d) {
         return 0;
-    } else if (glyph >= 0x2a28 && glyph < 0x2a2d) {
+    } else if (glyph >= 0x2a21 && glyph < 0x2a2d) {
         return 0;
-    } else if (glyph >= 0x2a46 && glyph < 0x2a4c) {
+    } else if (glyph >= 0x2a3c && glyph < 0x2a4e) {
         return 0;
-    } else if (glyph >= 0x2a6f && glyph < 0x2a74) {
+    } else if (glyph >= 0x2a6a && glyph < 0x2a74) {
         return 0;
     } else if (glyph >= 0x2a8f && glyph < 0x2a95) {
         return 0;
-    } else if (glyph >= 0x2abf && glyph < 0x2ac7) {
+    } else if (glyph >= 0x2abf && glyph < 0x2acd) {
         return 0;
     } else if (glyph >= 0x2aee && glyph < 0x2af3) {
         return 0;
     } else if (glyph >= 0x2b25 && glyph < 0x2b2c) {
         return 0;
-    } else if (glyph >= 0x2c00 && glyph < 0x2c0f) {
+    } else if (glyph >= 0x2bff && glyph < 0x2c0f) {
         return 0;
     } else if (glyph >= 0x2c10 && glyph < 0x2c1f) {
         return 0;
@@ -315,9 +321,7 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0x2c5a && glyph < 0x2c5f) {
         return 0;
-    } else if (glyph >= 0x2c60 && glyph < 0x2cce) {
-        return 0;
-    } else if (glyph >= 0x2cd0 && glyph < 0x2ce7) {
+    } else if (glyph >= 0x2c60 && glyph < 0x2ce7) {
         return 0;
     } else if (glyph >= 0x2cf9 && glyph < 0x2d05) {
         return 0;
@@ -333,13 +337,9 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0x2e3c && glyph < 0x2e43) {
         return 0;
-    } else if (glyph >= 0x2e44 && glyph < 0x2e4a) {
-        return 0;
-    } else if (glyph >= 0x3017 && glyph < 0x301c) {
+    } else if (glyph >= 0x2e44 && glyph < 0x2e50) {
         return 0;
     } else if (glyph >= 0x3196 && glyph < 0x319b) {
-        return 0;
-    } else if (glyph >= 0x31b3 && glyph < 0x31b8) {
         return 0;
     } else if (glyph >= 0x31f0 && glyph < 0x31f5) {
         return 0;
@@ -347,7 +347,7 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0xa640 && glyph < 0xa64c) {
         return 0;
-    } else if (glyph >= 0xa652 && glyph < 0xa65e) {
+    } else if (glyph >= 0xa64e && glyph < 0xa65e) {
         return 0;
     } else if (glyph >= 0xa673 && glyph < 0xa684) {
         return 0;
@@ -365,17 +365,15 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0xa75a && glyph < 0xa771) {
         return 0;
-    } else if (glyph >= 0xa778 && glyph < 0xa7af) {
+    } else if (glyph >= 0xa778 && glyph < 0xa7c0) {
         return 0;
-    } else if (glyph >= 0xa7b0 && glyph < 0xa7b8) {
+    } else if (glyph >= 0xa7c4 && glyph < 0xa7cb) {
         return 0;
-    } else if (glyph >= 0xa7f7 && glyph < 0xa7ff) {
+    } else if (glyph >= 0xa7f5 && glyph < 0xa7ff) {
         return 0;
     } else if (glyph >= 0xa882 && glyph < 0xa893) {
         return 0;
     } else if (glyph >= 0xa894 && glyph < 0xa8b4) {
-        return 0;
-    } else if (glyph >= 0xa9ef && glyph < 0xa9f9) {
         return 0;
     } else if (glyph >= 0xab30 && glyph < 0xab66) {
         return 0;
@@ -411,13 +409,33 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0xe274 && glyph < 0xe279) {
         return 0;
+    } else if (glyph >= 0xe290 && glyph < 0xe296) {
+        return 0;
+    } else if (glyph >= 0xe29c && glyph < 0xe2a2) {
+        return 0;
+    } else if (glyph >= 0xe2af && glyph < 0xe2b5) {
+        return 0;
+    } else if (glyph >= 0xe300 && glyph < 0xe333) {
+        return 0;
+    } else if (glyph >= 0xe340 && glyph < 0xe35c) {
+        return 0;
+    } else if (glyph >= 0xe3b0 && glyph < 0xe3fd) {
+        return 0;
     } else if (glyph >= 0xe5c0 && glyph < 0xe5e0) {
+        return 0;
+    } else if (glyph >= 0xe650 && glyph < 0xe679) {
         return 0;
     } else if (glyph >= 0xe68e && glyph < 0xe6ac) {
         return 0;
     } else if (glyph >= 0xe6af && glyph < 0xe6d0) {
         return 0;
-    } else if (glyph >= 0xe740 && glyph < 0xe768) {
+    } else if (glyph >= 0xe6f0 && glyph < 0xe6fd) {
+        return 0;
+    } else if (glyph >= 0xe6fe && glyph < 0xe728) {
+        return 0;
+    } else if (glyph >= 0xe72c && glyph < 0xe73d) {
+        return 0;
+    } else if (glyph >= 0xe73e && glyph < 0xe768) {
         return 0;
     } else if (glyph >= 0xe7b1 && glyph < 0xe7ee) {
         return 0;
@@ -425,7 +443,23 @@ is_glyph_wide(uint32_t glyph) {
         return 0;
     } else if (glyph >= 0xe800 && glyph < 0xe82a) {
         return 0;
+    } else if (glyph >= 0xe8c0 && glyph < 0xe8ce) {
+        return 0;
     } else if (glyph >= 0xe8e0 && glyph < 0xe8f5) {
+        return 0;
+    } else if (glyph >= 0xe900 && glyph < 0xe90a) {
+        return 0;
+    } else if (glyph >= 0xe910 && glyph < 0xea00) {
+        return 0;
+    } else if (glyph >= 0xeaa0 && glyph < 0xeaf2) {
+        return 0;
+    } else if (glyph >= 0xeb30 && glyph < 0xeb3a) {
+        return 0;
+    } else if (glyph >= 0xed00 && glyph < 0xed31) {
+        return 0;
+    } else if (glyph >= 0xf4c0 && glyph < 0xf4ca) {
+        return 0;
+    } else if (glyph >= 0xf4d0 && glyph < 0xf4ec) {
         return 0;
     } else if (glyph >= 0xf8a0 && glyph < 0xf8bd) {
         return 0;

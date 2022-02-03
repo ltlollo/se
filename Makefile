@@ -1,10 +1,10 @@
-VK_INCLUDE      := "${HOME}/opt/vulkan/1.2.135.0/x86_64/include"
-VK_LIB          := "${HOME}/opt/vulkan/1.2.135.0/x86_64/lib"
-VK_BIN          := "${HOME}/opt/vulkan/1.2.135.0/x86_64/bin"
+VK_INCLUDE      := "${HOME}/opt/vulkan/x86_64/include"
+VK_LIB          := "${HOME}/opt/vulkan/x86_64/lib"
+VK_BIN          := "${HOME}/opt/vulkan/x86_64/bin"
 SDL_LIB         := "${HOME}/dev/SDL/build/.libs"
 SDL_INCLUDE     := "${HOME}/dev/SDL/include"
 
-LDFLAGS += -L $(VK_LIB) -L $(SDL_LIB) -lGL -lGLEW -lGLU -lSDL2 -lvulkan
+LDFLAGS +=  -L $(SDL_LIB) -lGL -lGLEW -lGLU -lSDL2
 CFLAGS  += -I $(VK_INCLUDE) -I $(SDL_INCLUDE) -std=c11  -Wall -Wextra \
 	-Wno-pointer-sign -fPIC
 DEBUG_CFLAGS    := ${CFLAGS} -ggdb -O0 -pie -fno-omit-frame-pointer
@@ -16,8 +16,7 @@ SRC	:= se.c lex.c diff.c input.c vk.c ui.c conf.c
 se: tags $(SRC) se.h se.gen.h umap.gen.h util.c fio.c comp.c ilog.c \
 	ext/unifont.o ext/vert.o ext/frag.o
 	$(CC) -DLINK_FONT -D_GNU_SOURCE  $(DEBUG_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o ./ext/vert.o \
-		./ext/frag.o $(LDFLAGS) -o se
+		se.c lex.c util.c fio.c comp.c ilog.c ./ext/unifont.o ext/vert.o ext/frag.o $(LDFLAGS) -L $(VK_LIB) -lvulkan -o se
 
 se.gen.h: $(SRC)
 	$(SH) ./ext/gen_headers $(SRC) > se.gen.h
@@ -27,8 +26,8 @@ tags: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c
 
 release: $(SRC) se.gen.h umap.gen.h util.c fio.c comp.c ilog.c ext/unifont.o
 	$(CC) -DNDEBUG -DLINK_FONT -D_GNU_SOURCE $(RELEASE_CFLAGS) \
-		se.c lex.c util.c fio.c comp.c ilog.c ext/unifont.o ./ext/vert.o \
-		./ext/frag.o $(LDFLAGS) -o se
+		se.c lex.c util.c fio.c comp.c ilog.c ext/unifont.o\
+		$(LDFLAGS) -o se
 
 asm/%.s: %.c
 	mkdir -p asm
@@ -46,8 +45,8 @@ ext/rfp: rfp.c util.c fio.c
 	$(CC) -D_GNU_SOURCE  $(RELEASE_CFLAGS) \
 		rfp.c util.c fio.c $(LDFLAGS) -o ext/rfp
 
-ext/unifont.rfp: ext/rfp ext/unifont-10.0.07.bmp
-	$(SH) ./ext/rfp ext/unifont-10.0.07.bmp ext/unifont.rfp
+ext/unifont.rfp: ext/rfp ext/unifont-13.0.03.bmp
+	$(SH) ./ext/rfp ext/unifont-13.0.03.bmp ext/unifont.rfp
 
 ext/cfp: cfp.c util.c fio.c comp.c
 	$(CC) -D_GNU_SOURCE  $(RELEASE_CFLAGS) \

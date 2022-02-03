@@ -10,10 +10,13 @@
 #endif
 
 #include <SDL2/SDL.h>
-#include <SDL2/SDL_vulkan.h>
-#include <vulkan/vulkan.h>
+
 #include <GL/glew.h>
 #include <GL/gl.h>
+
+#ifndef USE_OPENGL
+#include <SDL2/SDL_vulkan.h>
+#include <vulkan/vulkan.h>
 
 struct vkstate {
     SDL_Window *win;
@@ -59,6 +62,7 @@ struct vkstate {
     int w;
     int h;
 };
+#endif
 
 struct gl_data {
     SDL_Window *win;
@@ -76,7 +80,9 @@ struct gl_data {
 
 union uistate {
     struct gl_data gl_id;
+#ifndef USE_OPENGL
     struct vkstate vks;
+#endif
 };
 
 struct ubotype {

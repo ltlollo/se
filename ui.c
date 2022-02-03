@@ -365,6 +365,7 @@ vk_window_init(struct vkstate *vks, int argc, char **argv) {
         , SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN | SDL_WINDOW_MAXIMIZED
         | SDL_WINDOW_RESIZABLE
     );
+    printf("%s", SDL_GetError());
     vkinit(vks, vks->win, debug_callback);
     return 0;
 }
